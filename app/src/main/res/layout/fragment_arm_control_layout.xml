@@ -1,0 +1,487 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="8dp">
+
+        <!-- 顶部标题栏 -->
+        <RelativeLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="4dp"
+            android:paddingBottom="8dp"
+            android:layout_marginBottom="8dp">
+
+            <!-- 返回按钮 -->
+            <Button
+                android:id="@+id/btn_back"
+                android:layout_width="60dp"
+                android:layout_height="36dp"
+                android:layout_alignParentLeft="true"
+                android:layout_centerVertical="true"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="2dp"
+                android:background="@drawable/button_rounded_ripple"
+                android:text="← 返回"
+                android:textColor="#FFFFFF"
+                android:textSize="10sp" />
+
+            <!-- 标题 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_centerInParent="true"
+                android:text="机械臂控制"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+        </RelativeLayout>
+
+    <!-- 角度控制区域（独占一行，使用滑块）-->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingBottom="8dp">
+
+        <!-- 角度滑块标题行 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingBottom="4dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="角度: "
+                android:textSize="14sp"
+                android:textStyle="bold"/>
+
+            <TextView
+                android:id="@+id/tv_angle_value"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="0°"
+                android:textSize="16sp"
+                android:textColor="#FF6200EE"
+                android:textStyle="bold"
+                android:gravity="center"/>
+
+            <Button
+                android:id="@+id/btn_reset_angle"
+                android:layout_width="60dp"
+                android:layout_height="32dp"
+                android:text="重置"
+                android:textSize="11sp"
+                android:background="@drawable/button_rounded_ripple"/>
+        </LinearLayout>
+
+        <!-- 角度滑块 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="-180"
+                android:textSize="11sp"
+                android:paddingEnd="4dp"/>
+
+            <SeekBar
+                android:id="@+id/seekbar_angle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="360"
+                android:progress="180"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="+180"
+                android:textSize="11sp"
+                android:paddingStart="4dp"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- 状态显示区域 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingBottom="8dp"
+        android:background="#F0F0F0"
+        android:padding="8dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="状态: "
+            android:textSize="12sp"
+            android:textStyle="bold"/>
+
+        <TextView
+            android:id="@+id/tv_status"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="就绪"
+            android:textSize="12sp"
+            android:textColor="#FF6200EE"
+            android:maxLines="2"
+            android:ellipsize="end"/>
+    </LinearLayout>
+
+    <!-- 速度输入区域 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="速度: "
+            android:textSize="14sp"/>
+
+        <EditText
+            android:id="@+id/et_speed"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:inputType="number"
+            android:hint="50"
+            android:textSize="14sp"
+            android:paddingLeft="8dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="(0-100)"
+            android:textSize="12sp"
+            android:paddingStart="4dp"/>
+    </LinearLayout>
+
+    <!-- 相对移动控制区域 -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="相对移动（根据滑块角度）"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:paddingTop="8dp"
+        android:paddingBottom="4dp"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:paddingBottom="8dp">
+
+        <Button
+            android:id="@+id/btn_left_rel_move"
+            style="@style/TextStyle"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="44dp"
+            android:layout_marginEnd="2dp"
+            android:textSize="10sp"
+            android:background="@drawable/button_rounded_ripple"
+            android:text="左臂"/>
+
+        <Button
+            android:id="@+id/btn_right_rel_move"
+            style="@style/TextStyle"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="44dp"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
+            android:textSize="10sp"
+            android:background="@drawable/button_rounded_ripple"
+            android:text="右臂"/>
+
+        <Button
+            android:id="@+id/btn_dual_rel_move"
+            style="@style/TextStyle"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="44dp"
+            android:layout_marginStart="2dp"
+            android:textSize="10sp"
+            android:background="@drawable/button_rounded_ripple"
+            android:text="同时移动"/>
+    </LinearLayout>
+
+    <!-- 绝对位置控制区域 -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="绝对位置（移动到指定角度）"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:paddingTop="8dp"
+        android:paddingBottom="4dp"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:paddingBottom="8dp">
+
+        <Button
+            android:id="@+id/btn_left_abs_move"
+            style="@style/TextStyle"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="44dp"
+            android:layout_marginEnd="2dp"
+            android:textSize="10sp"
+            android:background="@drawable/button_rounded_ripple"
+            android:text="左臂"/>
+
+        <Button
+            android:id="@+id/btn_right_abs_move"
+            style="@style/TextStyle"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="44dp"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
+            android:textSize="10sp"
+            android:background="@drawable/button_rounded_ripple"
+            android:text="右臂"/>
+
+        <Button
+            android:id="@+id/btn_dual_abs_move"
+            style="@style/TextStyle"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="44dp"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
+            android:textSize="10sp"
+            android:background="@drawable/button_rounded_ripple"
+            android:text="同时移动"/>
+
+        <Button
+            android:id="@+id/btn_dual_abs_reset"
+            style="@style/TextStyle"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="44dp"
+            android:layout_marginStart="2dp"
+            android:textSize="10sp"
+            android:background="@drawable/button_rounded_ripple"
+            android:text="重置到-30"/>
+    </LinearLayout>
+
+    <!-- 重置控制区域 -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="重置到默认位置（垂直）"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:paddingTop="8dp"
+        android:paddingBottom="4dp"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:paddingBottom="8dp">
+
+        <Button
+            android:id="@+id/btn_left_reset"
+            style="@style/TextStyle"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="44dp"
+            android:layout_marginEnd="2dp"
+            android:textSize="10sp"
+            android:background="@drawable/button_rounded_ripple"
+            android:text="重置左臂"/>
+
+        <Button
+            android:id="@+id/btn_right_reset"
+            style="@style/TextStyle"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="44dp"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
+            android:textSize="10sp"
+            android:background="@drawable/button_rounded_ripple"
+            android:text="重置右臂"/>
+
+        <Button
+            android:id="@+id/btn_both_reset"
+            style="@style/TextStyle"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="44dp"
+            android:layout_marginStart="2dp"
+            android:textSize="10sp"
+            android:background="@drawable/button_rounded_ripple"
+            android:text="重置双臂"/>
+    </LinearLayout>
+
+    <!-- 查询控制区域 -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="查询位置"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:paddingTop="8dp"
+        android:paddingBottom="4dp"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:paddingBottom="8dp">
+
+        <Button
+            android:id="@+id/btn_query_left"
+            style="@style/TextStyle"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="44dp"
+            android:layout_marginEnd="4dp"
+            android:textSize="10sp"
+            android:background="@drawable/button_rounded_ripple"
+            android:text="查询左臂"/>
+
+        <Button
+            android:id="@+id/btn_query_right"
+            style="@style/TextStyle"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="44dp"
+            android:layout_marginStart="4dp"
+            android:textSize="10sp"
+            android:background="@drawable/button_rounded_ripple"
+            android:text="查询右臂"/>
+    </LinearLayout>
+
+    <!-- 实时监控控制区域 -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="实时监控"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:paddingTop="8dp"
+        android:paddingBottom="4dp"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:paddingBottom="8dp">
+
+        <Button
+            android:id="@+id/btn_start_monitor"
+            style="@style/TextStyle"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="44dp"
+            android:layout_marginEnd="4dp"
+            android:textSize="10sp"
+            android:background="@drawable/button_rounded_ripple"
+            android:text="开始监控"/>
+
+        <Button
+            android:id="@+id/btn_stop_monitor"
+            style="@style/TextStyle"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="44dp"
+            android:layout_marginStart="4dp"
+            android:textSize="10sp"
+            android:background="@drawable/button_rounded_ripple"
+            android:text="停止监控"/>
+    </LinearLayout>
+
+    <!-- 停止控制区域 -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="紧急停止"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:paddingTop="8dp"
+        android:paddingBottom="4dp"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:paddingBottom="8dp">
+
+        <Button
+            android:id="@+id/btn_stop_left"
+            style="@style/TextStyle"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="44dp"
+            android:layout_marginEnd="2dp"
+            android:textSize="10sp"
+            android:background="@drawable/button_rounded_ripple"
+            android:text="停左臂"/>
+
+        <Button
+            android:id="@+id/btn_stop_right"
+            style="@style/TextStyle"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="44dp"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
+            android:textSize="10sp"
+            android:background="@drawable/button_rounded_ripple"
+            android:text="停右臂"/>
+
+        <Button
+            android:id="@+id/btn_stop_dual"
+            style="@style/TextStyle"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="44dp"
+            android:layout_marginStart="2dp"
+            android:textSize="10sp"
+            android:background="@drawable/button_rounded_ripple"
+            android:text="全部停止"/>
+    </LinearLayout>
+
+    </LinearLayout>
+
+    </ScrollView>
+
+</FrameLayout>
