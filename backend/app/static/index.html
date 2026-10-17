@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smart Receptionist</title>
+<style>
+  :root {
+    --bg: #f4f6fb; --card: #ffffff; --text: #14213d; --muted: #5c6784; --line: #e3e7f0;
+    --accent: #2f6fed; --accent-soft: #e6eeff; --ok: #1b9e5a; --ok-soft: #e3f6ec; --warn: #c27c0e; --warn-soft: #fff3dc;
+    --err: #c23a3a; --err-soft: #fde8e8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1424; --card: #171e33; --text: #e8ecf7; --muted: #9aa4c0; --line: #27304a;
+      --accent: #6d9bff; --accent-soft: #1d2a4d; --ok: #4fd18b; --ok-soft: #133224; --warn: #f0b04a; --warn-soft: #3a2c10;
+      --err: #ff7a7a; --err-soft: #3a1717;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  header { padding: 20px 16px 8px; max-width: 1180px; margin: 0 auto; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  header h1 { font-size: 22px; margin: 0; }
+  .badge { font-size: 12px; padding: 3px 10px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  main { max-width: 1180px; margin: 0 auto; padding: 8px 16px 40px; display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; min-width: 0; }
+  .card h2 { font-size: 16px; margin: 0 0 10px; }
+  .wide { grid-column: 1 / -1; }
+  .muted { color: var(--muted); font-size: 13px; }
+  button, .btn { font: inherit; border: 0; border-radius: 10px; padding: 8px 14px; background: var(--accent); color: #fff; cursor: pointer; text-decoration: none; display: inline-block; }
+  button.secondary { background: var(--accent-soft); color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  input, select { font: inherit; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); width: 100%; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+  .row > * { flex: 1 1 140px; }
+  .row > button { flex: 0 0 auto; }
+  .qr { background: #fff; border-radius: 10px; padding: 8px; width: 170px; height: 170px; }
+  .qr svg { width: 100%; height: 100%; }
+  .list { display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow: auto; }
+  .item { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .item b { font-weight: 600; }
+  .pill { font-size: 12px; padding: 2px 8px; border-radius: 99px; display: inline-block; }
+  .pill.ok { background: var(--ok-soft); color: var(--ok); }
+  .pill.warn { background: var(--warn-soft); color: var(--warn); }
+  .pill.err { background: var(--err-soft); color: var(--err); }
+  .out { white-space: pre-wrap; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; background: var(--bg); border-radius: 10px; padding: 10px; max-height: 260px; overflow: auto; }
+  .slots button { margin: 4px 4px 0 0; }
+  .install { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🤖 Smart Receptionist</h1>
+  <span class="badge" id="modeBadge">…</span>
+  <span class="muted" id="clock"></span>
+</header>
+<main>
+  <section class="card">
+    <h2>App auf dem Roboter installieren</h2>
+    <div class="install">
+      <div class="qr" id="qr"></div>
+      <div style="flex:1;min-width:180px">
+        <p class="muted" id="apkInfo">Prüfe APK …</p>
+        <a class="btn" id="apkLink" href="/download/smart-receptionist.apk">APK herunterladen</a>
+        <p class="muted">Diese Seite im Browser des Roboters (oder eines Android-Geräts) öffnen und auf „APK herunterladen“ tippen – oder den QR-Code scannen.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Zugang & Status</h2>
+    <div class="row">
+      <input id="apiKey" type="password" placeholder="API-Key (SR_API_KEY)">
+      <button id="saveKey">Verbinden</button>
+    </div>
+    <div id="status" class="muted">Noch nicht verbunden.</div>
+    <div id="login" style="display:none" class="row">
+      <button id="loginBtn">Mit Microsoft anmelden</button>
+      <button id="logoutBtn" class="secondary">Abmelden</button>
+    </div>
+    <div id="loginInfo"></div>
+  </section>
+
+  <section class="card">
+    <h2>Teams-Postfach (Demo)</h2>
+    <p class="muted">Im Demo-Modus landen alle Benachrichtigungen hier statt in Teams.</p>
+    <div class="list" id="inbox"><span class="muted">—</span></div>
+  </section>
+
+  <section class="card">
+    <h2>Besucherprotokoll</h2>
+    <div class="list" id="visits"><span class="muted">—</span></div>
+  </section>
+
+  <section class="card wide">
+    <h2>Szenarien ohne Roboter testen</h2>
+    <div class="row">
+      <input id="visitor" placeholder="Name des Besuchers, z. B. Max Mustermann">
+      <input id="search" placeholder="Ansprechpartner suchen, z. B. Frau Schmitt">
+      <button id="searchBtn" class="secondary">Suchen</button>
+    </div>
+    <div class="row"><select id="employee"></select></div>
+    <div class="row">
+      <button id="arrivalBtn">① Hat Termin</button>
+      <button id="walkinBtn">② Ohne Termin</button>
+      <button id="slotsBtn">③ Termin vorschlagen</button>
+      <button id="testBtn" class="secondary">Testnachricht</button>
+    </div>
+    <div class="slots" id="slots"></div>
+    <div class="out" id="output">Ergebnisse erscheinen hier.</div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let key = "";
+try { key = localStorage.getItem("srApiKey") || ""; } catch (e) {}
+$("apiKey").value = key;
+
+async function api(path, options = {}) {
+  const res = await fetch(path, {
+    ...options,
+    headers: { "Content-Type": "application/json", "X-Api-Key": key, ...(options.headers || {}) },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail || ("HTTP " + res.status));
+  return body;
+}
+const fmtTime = (iso) => new Date(iso).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+const fmtSlot = (s) => new Date(s.start).toLocaleString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const show = (obj) => { $("output").textContent = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2); };
+
+async function loadPublic() {
+  const h = await fetch("/health").then((r) => r.json());
+  $("modeBadge").textContent = h.mode === "mock" ? "Demo-Modus" : "Microsoft 365";
+  $("clock").textContent = h.company + " · " + new Date(h.time).toLocaleString("de-DE");
+  const apk = await fetch("/api/app/latest").then((r) => r.json());
+  if (apk.available) {
+    $("apkInfo").textContent = `Version ${apk.version_name || "?"} (Build ${apk.version_code}) · ${(apk.size_bytes / 1048576).toFixed(1)} MB`;
+    $("qr").innerHTML = await fetch("/download/qr.svg").then((r) => r.text());
+  } else {
+    $("apkInfo").textContent = "Noch keine APK hinterlegt (Ordner backend/apk).";
+    $("apkLink").style.display = "none";
+    $("qr").style.display = "none";
+  }
+}
+
+async function loadStatus() {
+  try {
+    const s = await api("/api/status");
+    const p = s.provider;
+    let html = `<span class="pill ${p.ready ? "ok" : "err"}">${p.ready ? "bereit" : "nicht bereit"}</span> `
+      + `Modus <b>${esc(s.mode)}</b> · Arbeitszeit ${esc(s.work_hours)}`;
+    if (p.signed_in_as) html += `<br>Angemeldet als <b>${esc(p.signed_in_as)}</b>`;
+    if (p.error) html += `<br><span class="muted">${esc(p.error)}</span>`;
+    $("status").innerHTML = html;
+    $("login").style.display = s.mode === "graph" && p.auth === "delegated" ? "flex" : "none";
+    if (p.device_login_pending) {
+      $("loginInfo").innerHTML = `<p>Öffne <a href="${esc(p.device_login_pending.verification_uri)}" target="_blank">${esc(p.device_login_pending.verification_uri)}</a> und gib den Code <b>${esc(p.device_login_pending.user_code)}</b> ein.</p>`;
+    } else if (p.ready) {
+      $("loginInfo").innerHTML = "";
+    }
+    return true;
+  } catch (e) {
+    $("status").innerHTML = `<span class="pill err">Fehler</span> ${esc(e.message)}`;
+    return false;
+  }
+}
+
+async function loadLists() {
+  try {
+    const inbox = await api("/api/mock/inbox");
+    $("inbox").innerHTML = inbox.length ? inbox.map((m) => `<div class="item"><span class="muted">${fmtTime(m.time)} · an ${esc(m.to)}</span><div>${m.html}</div></div>`).join("") : '<span class="muted">Keine Nachrichten.</span>';
+    const visits = await api("/api/visits/log");
+    $("visits").innerHTML = visits.length ? visits.map((v) => `<div class="item"><span class="muted">${fmtTime(v.time)} · ${esc(v.type)}</span><br><b>${esc(v.visitor)}</b> → ${esc(v.employee)}<br><span class="muted">${esc(v.result)}</span></div>`).join("") : '<span class="muted">Noch keine Besuche.</span>';
+  } catch (e) { /* Schlüssel fehlt oder Backend nicht erreichbar */ }
+}
+
+async function loadEmployees(q = "") {
+  try {
+    const list = await api("/api/employees?limit=200&q=" + encodeURIComponent(q));
+    $("employee").innerHTML = list.map((e) => `<option value="${esc(e.id)}">${esc(e.name)}${e.department ? " – " + esc(e.department) : ""}${q ? " (" + e.score + ")" : ""}</option>`).join("");
+    if (!list.length) $("employee").innerHTML = "<option value=''>Kein Treffer</option>";
+  } catch (e) { show(e.message); }
+}
+
+$("saveKey").onclick = async () => {
+  key = $("apiKey").value.trim();
+  try { localStorage.setItem("srApiKey", key); } catch (e) {}
+  if (await loadStatus()) { loadEmployees(); loadLists(); }
+};
+$("searchBtn").onclick = () => loadEmployees($("search").value);
+$("search").onkeydown = (e) => { if (e.key === "Enter") loadEmployees($("search").value); };
+
+const payload = () => ({ visitor_name: $("visitor").value || "Max Mustermann", employee_id: $("employee").value });
+$("arrivalBtn").onclick = async () => { try { show(await api("/api/visits/arrival", { method: "POST", body: JSON.stringify(payload()) })); loadLists(); } catch (e) { show(e.message); } };
+$("walkinBtn").onclick = async () => {
+  try {
+    const r = await api("/api/visits/walk-in", { method: "POST", body: JSON.stringify(payload()) });
+    show(r); renderSlots(r.next_slots || []); loadLists();
+  } catch (e) { show(e.message); }
+};
+$("slotsBtn").onclick = async () => {
+  try { const s = await api(`/api/employees/${encodeURIComponent($("employee").value)}/slots`); renderSlots(s); show(s); } catch (e) { show(e.message); }
+};
+$("testBtn").onclick = async () => { try { show(await api("/api/notify/test", { method: "POST", body: JSON.stringify({ employee_id: $("employee").value }) })); loadLists(); } catch (e) { show(e.message); } };
+$("loginBtn").onclick = async () => { try { const r = await api("/api/auth/device-login", { method: "POST" }); $("loginInfo").innerHTML = `<p>Öffne <a href="${esc(r.verification_uri)}" target="_blank">${esc(r.verification_uri)}</a> und gib den Code <b>${esc(r.user_code)}</b> ein (mit dem Empfangs-Konto anmelden).</p>`; } catch (e) { show(e.message); } };
+$("logoutBtn").onclick = async () => { try { await api("/api/auth/logout", { method: "POST" }); loadStatus(); } catch (e) { show(e.message); } };
+
+function renderSlots(slots) {
+  $("slots").innerHTML = "";
+  slots.forEach((s) => {
+    const b = document.createElement("button");
+    b.className = "secondary";
+    b.textContent = "Buchen: " + fmtSlot(s);
+    b.onclick = async () => {
+      try { show(await api("/api/appointments", { method: "POST", body: JSON.stringify({ ...payload(), start: s.start, end: s.end }) })); $("slots").innerHTML = ""; loadLists(); }
+      catch (e) { show(e.message); }
+    };
+    $("slots").appendChild(b);
+  });
+}
+
+loadPublic();
+if (key) { loadStatus().then((ok) => { if (ok) { loadEmployees(); loadLists(); } }); }
+setInterval(() => { if (key) { loadLists(); loadStatus(); } }, 4000);
+</script>
+</body>
+</html>

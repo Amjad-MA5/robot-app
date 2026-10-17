@@ -1,0 +1,86 @@
+package de.hinterland.smartreceptionist.config
+
+import android.content.Context
+import android.content.SharedPreferences
+
+/**
+ * Alle Einstellungen der App. Werden im Admin-Bereich (lange auf die linke obere
+ * Ecke drücken → PIN) geändert und in den SharedPreferences gespeichert.
+ */
+data class AppSettings(
+    /** Adresse des Backends, z. B. http://192.168.2.50:8080 */
+    val backendUrl: String = "http://192.168.2.100:8080",
+    /** Muss mit SR_API_KEY im Backend übereinstimmen */
+    val apiKey: String = "hinterland-demo",
+    /** Name des Kartenpunkts für den Warteraum (Karten-Tool des Roboters) */
+    val waitingRoom: String = "Warteraum",
+    /** Name des Kartenpunkts am Empfang, zu dem der Roboter zurückkehrt */
+    val receptionPoint: String = "Reception Point",
+    /** "de" oder "en" */
+    val language: String = "de",
+    /** Name, mit dem sich der Roboter vorstellt */
+    val robotName: String = "Nova",
+    /** Wird überschrieben, sobald das Backend seinen Firmennamen liefert */
+    val companyName: String = "Hinterland Hack",
+    /** Personen näher als dieser Abstand (Meter) werden automatisch begrüßt */
+    val greetDistance: Float = 1.8f,
+    /** Automatisch begrüßen, sobald jemand vor dem Roboter steht */
+    val autoGreet: Boolean = true,
+    /** Geschwindigkeit beim Begleiten des Gastes (m/s, 0.1 – 0.85) */
+    val escortSpeed: Float = 0.5f,
+    /** Geschwindigkeit bei der Rückfahrt zum Empfang (m/s) */
+    val returnSpeed: Float = 0.7f,
+    /** Wartezeit im Warteraum, bevor der Roboter zurückfährt (Sekunden) */
+    val waitingRoomPauseSec: Int = 4,
+    /** Sprachverständnis über das AgentOS-Sprachmodell (sonst nur Regeln) */
+    val useLlm: Boolean = true,
+    /** PIN für den Admin-Bereich */
+    val adminPin: String = "1234",
+) {
+    val isGerman: Boolean get() = language != "en"
+
+    companion object {
+        private const val PREFS = "smart_receptionist_settings"
+
+        fun load(context: Context): AppSettings {
+            val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val d = AppSettings()
+            return AppSettings(
+                backendUrl = p.getString("backendUrl", d.backendUrl) ?: d.backendUrl,
+                apiKey = p.getString("apiKey", d.apiKey) ?: d.apiKey,
+                waitingRoom = p.getString("waitingRoom", d.waitingRoom) ?: d.waitingRoom,
+                receptionPoint = p.getString("receptionPoint", d.receptionPoint) ?: d.receptionPoint,
+                language = p.getString("language", d.language) ?: d.language,
+                robotName = p.getString("robotName", d.robotName) ?: d.robotName,
+                companyName = p.getString("companyName", d.companyName) ?: d.companyName,
+                greetDistance = p.getFloat("greetDistance", d.greetDistance),
+                autoGreet = p.getBoolean("autoGreet", d.autoGreet),
+                escortSpeed = p.getFloat("escortSpeed", d.escortSpeed),
+                returnSpeed = p.getFloat("returnSpeed", d.returnSpeed),
+                waitingRoomPauseSec = p.getInt("waitingRoomPauseSec", d.waitingRoomPauseSec),
+                useLlm = p.getBoolean("useLlm", d.useLlm),
+                adminPin = p.getString("adminPin", d.adminPin) ?: d.adminPin,
+            )
+        }
+
+        fun save(context: Context, s: AppSettings) {
+            val p: SharedPreferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            p.edit()
+                .putString("backendUrl", s.backendUrl.trim().trimEnd('/'))
+                .putString("apiKey", s.apiKey.trim())
+                .putString("waitingRoom", s.waitingRoom.trim())
+                .putString("receptionPoint", s.receptionPoint.trim())
+                .putString("language", s.language)
+                .putString("robotName", s.robotName.trim())
+                .putString("companyName", s.companyName.trim())
+                .putFloat("greetDistance", s.greetDistance)
+                .putBoolean("autoGreet", s.autoGreet)
+                .putFloat("escortSpeed", s.escortSpeed)
+                .putFloat("returnSpeed", s.returnSpeed)
+                .putInt("waitingRoomPauseSec", s.waitingRoomPauseSec)
+                .putBoolean("useLlm", s.useLlm)
+                .putString("adminPin", s.adminPin.trim())
+                .apply()
+        }
+    }
+}
