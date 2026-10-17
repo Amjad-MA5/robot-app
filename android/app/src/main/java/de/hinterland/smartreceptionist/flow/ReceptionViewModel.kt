@@ -471,7 +471,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun checkIn(firstUtterance: String?) {
         val l = lines
         val visit = Visit()
-        setScreen(title = "👋 " + l.idleTitle, mood = Mood.JOY)
+        setScreen(title = l.idleTitle, mood = Mood.JOY)
         RobotController.resetHead()
         val greeting = l.greeting(companyName, settings.robotName)
         if (firstUtterance != null) {
@@ -948,7 +948,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
             when (result) {
                 is NavResult.Arrived -> {
                     runCatching { AgentCore.isMicrophoneMuted = false }
-                    setScreen(title = "🙂", subtitle = waitingRoom, mood = Mood.JOY, phase = Phase.ESCORT)
+                    setScreen(title = "", subtitle = waitingRoom, mood = Mood.JOY, phase = Phase.ESCORT)
                     say(arrivedLine ?: employee?.let { l.arrivedWaitingRoom(it.name) } ?: l.arrivedWaitingRoomGeneric)
                     delay(settings.waitingRoomPauseSec * 1000L)
                 }
@@ -1229,7 +1229,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
 
         val distance = withContext(Dispatchers.IO) { navigator.distanceTo(destination.name) }
         if (distance != null && distance < ALREADY_THERE_M) {
-            setScreen(title = "🙂", subtitle = label, mood = Mood.JOY)
+            setScreen(title = "", subtitle = label, mood = Mood.JOY)
             say(g.alreadyHere(destination))
             return
         }
@@ -1247,7 +1247,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
             when (val result = navigator.navigateTo(destination.name, settings.escortSpeed) { event -> onNavEvent(event) }) {
                 is NavResult.Arrived -> {
                     runCatching { AgentCore.isMicrophoneMuted = false }
-                    setScreen(title = "🙂", subtitle = label, mood = Mood.JOY, phase = Phase.ESCORT)
+                    setScreen(title = "", subtitle = label, mood = Mood.JOY, phase = Phase.ESCORT)
                     say(g.arrived(destination))
                     val pauseSec = if (destination.kind == PlaceKind.WAITING_ROOM) settings.waitingRoomPauseSec else 2
                     if (destination.kind != PlaceKind.RECEPTION) delay(pauseSec * 1000L)

@@ -19,11 +19,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import de.hinterland.smartreceptionist.flow.Mood
 import de.hinterland.smartreceptionist.ui.theme.Palette
 import kotlinx.coroutines.delay
@@ -33,7 +35,7 @@ import kotlin.math.sin
 import kotlin.random.Random
 
 /**
- * Animiertes, freundliches Roboter-Gesicht.
+ * Animierter Roboter-Avatar „Nova“: weißes Gehäuse, dunkles Visier mit leuchtenden Augen, Antenne.
  *
  * Augen blinzeln zufällig und schauen sich um, der Mund bewegt sich beim Sprechen,
  * bei Freude werden die Augen zu lachenden Bögen, beim Nachdenken wandern sie nach oben.
@@ -99,39 +101,77 @@ fun RobotFace(mood: Mood, modifier: Modifier = Modifier) {
         val ox = (size.width - s) / 2f
         val oy = (size.height - s) / 2f + bob * s * 0.008f
         fun p(x: Float, y: Float) = Offset(ox + x * s, oy + y * s)
-
+        val shell = Color(0xFF8FA6D1)
+        
         // Zuhör-Ringe
         if (listening > 0.01f) {
             for (i in 0..1) {
                 val phase = (pulse + i * 0.5f) % 1f
                 drawCircle(
                     color = Palette.Accent.copy(alpha = (1f - phase) * 0.35f * listening),
-                    radius = s * (0.40f + phase * 0.12f),
-                    center = p(0.5f, 0.52f),
+                    radius = s * (0.44f + phase * 0.10f),
+                    center = p(0.5f, 0.54f),
                     style = Stroke(width = s * 0.012f),
                 )
             }
         }
 
-        // Kopf-Platte
+        // Schatten / Glow unter dem Kopf
         drawRoundRect(
-            color = Color.White.copy(alpha = 0.07f),
-            topLeft = p(0.08f, 0.14f),
-            size = Size(s * 0.84f, s * 0.76f),
-            cornerRadius = CornerRadius(s * 0.18f, s * 0.18f),
+            color = Palette.Accent.copy(alpha = 0.10f + 0.08f * listening),
+            topLeft = p(0.06f, 0.17f),
+            size = Size(s * 0.88f, s * 0.76f),
+            cornerRadius = CornerRadius(s * 0.26f, s * 0.26f),
+        )
+
+        // Ohr-Module
+        listOf(0.045f, 0.895f).forEach { x ->
+            drawRoundRect(shell, p(x, 0.41f), Size(s * 0.06f, s * 0.24f), CornerRadius(s * 0.03f, s * 0.03f))
+            drawRoundRect(
+                Palette.Accent.copy(alpha = 0.55f + 0.3f * listening),
+                p(x + 0.018f, 0.47f), Size(s * 0.024f, s * 0.12f), CornerRadius(s * 0.012f, s * 0.012f),
+            )
+        }
+
+        // Gehäuse
+        val headTop = p(0.10f, 0.20f)
+        drawRoundRect(
+            brush = Brush.verticalGradient(listOf(Color(0xFFFFFFFF), Color(0xFFC9D7F0)), startY = headTop.y, endY = headTop.y + s * 0.68f),
+            topLeft = headTop,
+            size = Size(s * 0.80f, s * 0.68f),
+            cornerRadius = CornerRadius(s * 0.22f, s * 0.22f),
+        )
+        // Glanzkante oben
+        drawRoundRect(
+            Color.White.copy(alpha = 0.7f), p(0.32f, 0.225f), Size(s * 0.36f, s * 0.016f), CornerRadius(s * 0.009f, s * 0.009f),
+        )
+
+        // Visier
+        val visorTop = p(0.17f, 0.30f)
+        val visorSize = Size(s * 0.66f, s * 0.47f)
+        drawRoundRect(
+            brush = Brush.verticalGradient(listOf(Color(0xFF12294F), Color(0xFF06122B)), startY = visorTop.y, endY = visorTop.y + visorSize.height),
+            topLeft = visorTop, size = visorSize, cornerRadius = CornerRadius(s * 0.16f, s * 0.16f),
+        )
+        drawRoundRect(
+            Palette.Accent.copy(alpha = 0.25f), visorTop, visorSize, CornerRadius(s * 0.16f, s * 0.16f),
+            style = Stroke(width = s * 0.007f),
+        )
+        drawRoundRect(
+            Color.White.copy(alpha = 0.07f), p(0.22f, 0.32f), Size(s * 0.56f, s * 0.07f), CornerRadius(s * 0.035f, s * 0.035f),
         )
 
         // Wangen
-        drawCircle(Palette.Cheek.copy(alpha = 0.28f + 0.15f * joyEyes), s * 0.055f, p(0.22f, 0.62f))
-        drawCircle(Palette.Cheek.copy(alpha = 0.28f + 0.15f * joyEyes), s * 0.055f, p(0.78f, 0.62f))
+        drawCircle(Palette.Cheek.copy(alpha = 0.22f + 0.15f * joyEyes), s * 0.038f, p(0.255f, 0.665f))
+        drawCircle(Palette.Cheek.copy(alpha = 0.22f + 0.15f * joyEyes), s * 0.038f, p(0.745f, 0.665f))
 
         // Augen
-        listOf(0.32f, 0.68f).forEach { ex ->
-            drawEye(p(ex, 0.43f), s, blink.value, look.value, joyEyes, sad, ex < 0.5f)
+        listOf(0.34f, 0.66f).forEach { ex ->
+            drawEye(p(ex, 0.52f), s, blink.value, look.value, joyEyes, sad, ex < 0.5f)
         }
 
         // Mund
-        drawMouth(p(0.5f, 0.68f), s, smile, speaking * (0.35f + 0.65f * (0.6f * talk + 0.4f * talkSlow)))
+        drawMouth(p(0.5f, 0.665f), s, smile, speaking * (0.35f + 0.65f * (0.6f * talk + 0.4f * talkSlow)))
 
         // Denk-Punkte
         if (thinking > 0.01f) {
@@ -140,8 +180,8 @@ fun RobotFace(mood: Mood, modifier: Modifier = Modifier) {
                 val lift = sin(phase * PI.toFloat()) * s * 0.03f
                 drawCircle(
                     Palette.Accent.copy(alpha = thinking * (0.45f + 0.55f * sin(phase * PI.toFloat()))),
-                    s * 0.022f,
-                    p(0.78f + i * 0.07f, 0.12f) - Offset(0f, lift),
+                    s * 0.02f,
+                    p(0.70f + i * 0.065f, 0.14f) - Offset(0f, lift),
                 )
             }
         }
@@ -157,64 +197,50 @@ private fun DrawScope.drawEye(
     sad: Float,
     left: Boolean,
 ) {
-    val w = s * 0.17f
-    val h = s * 0.21f * (1f - 0.92f * blink) * (1f - 0.85f * joy)
+    val w = s * 0.13f
+    val h = s * 0.19f * (1f - 0.92f * blink) * (1f - 0.85f * joy)
+    val c = Offset(center.x + look.x * s * 0.022f, center.y + look.y * s * 0.02f + sad * s * 0.015f)
+    val tilt = sad * (if (left) 14f else -14f)
     if (joy < 0.95f) {
-        drawRoundRect(
-            color = Color.White,
-            topLeft = Offset(center.x - w / 2, center.y - h / 2),
-            size = Size(w, h),
-            cornerRadius = CornerRadius(w / 2, w / 2),
-            alpha = 1f - joy,
-        )
-        if (h > s * 0.04f) {
-            val pupilR = s * 0.048f
-            val pupil = Offset(center.x + look.x * w * 0.22f, center.y + look.y * h * 0.22f)
-            drawCircle(Palette.Pupil, pupilR, pupil, alpha = 1f - joy)
-            drawCircle(Color.White, pupilR * 0.35f, pupil + Offset(-pupilR * 0.35f, -pupilR * 0.4f), alpha = 1f - joy)
+        rotate(tilt, c) {
+            val r = CornerRadius(w / 2, w / 2)
+            // Glow
+            drawRoundRect(Palette.Accent.copy(alpha = 0.16f * (1f - joy)), Offset(c.x - w * 0.8f, c.y - h * 0.7f), Size(w * 1.6f, h * 1.4f), CornerRadius(w * 0.8f, w * 0.8f))
+            drawRoundRect(Palette.Accent.copy(alpha = 1f - joy), Offset(c.x - w / 2, c.y - h / 2), Size(w, h), r)
+            if (h > s * 0.06f) {
+                drawCircle(Color.White.copy(alpha = 0.85f * (1f - joy)), w * 0.17f, Offset(c.x - w * 0.15f, c.y - h * 0.27f))
+            }
         }
     }
     if (joy > 0.05f) {
         // Lachende Augen: ∩-Bogen
         val arc = Path().apply {
-            moveTo(center.x - w * 0.55f, center.y + s * 0.02f)
-            quadraticTo(center.x, center.y - s * 0.09f, center.x + w * 0.55f, center.y + s * 0.02f)
+            moveTo(c.x - w * 0.62f, c.y + s * 0.03f)
+            quadraticTo(c.x, c.y - s * 0.10f, c.x + w * 0.62f, c.y + s * 0.03f)
         }
-        drawPath(arc, Color.White.copy(alpha = joy), style = Stroke(width = s * 0.035f, cap = StrokeCap.Round))
-    }
-    if (sad > 0.05f) {
-        // Traurige Augenbrauen
-        val inner = if (left) 1f else -1f
-        drawLine(
-            Color.White.copy(alpha = sad),
-            Offset(center.x - inner * w * 0.6f, center.y - s * 0.15f),
-            Offset(center.x + inner * w * 0.5f, center.y - s * 0.19f),
-            strokeWidth = s * 0.022f,
-            cap = StrokeCap.Round,
-        )
+        drawPath(arc, Palette.Accent.copy(alpha = 0.25f * joy), style = Stroke(width = s * 0.07f, cap = StrokeCap.Round))
+        drawPath(arc, Palette.Accent.copy(alpha = joy), style = Stroke(width = s * 0.034f, cap = StrokeCap.Round))
     }
 }
 
 private fun DrawScope.drawMouth(center: Offset, s: Float, smile: Float, open: Float) {
-    val halfW = s * 0.13f
-    val curve = smile * s * 0.075f
+    val halfW = s * 0.075f
+    val curve = smile * s * 0.04f
     if (open > 0.03f) {
-        val openH = s * 0.085f * open
+        val openH = s * 0.06f * open
         val mouth = Path().apply {
             moveTo(center.x - halfW, center.y)
             quadraticTo(center.x, center.y + curve * 0.4f, center.x + halfW, center.y)
             quadraticTo(center.x, center.y + curve + openH * 1.6f, center.x - halfW, center.y)
             close()
         }
-        drawPath(mouth, Color(0xFF07142B))
-        drawPath(mouth, Color.White, style = Stroke(width = s * 0.022f, cap = StrokeCap.Round))
-        // Zunge
-        drawCircle(Palette.Cheek.copy(alpha = 0.8f), s * 0.03f * open, Offset(center.x, center.y + curve * 0.5f + openH * 0.9f))
+        drawPath(mouth, Palette.Accent.copy(alpha = 0.9f))
+        drawPath(mouth, Palette.Accent, style = Stroke(width = s * 0.016f, cap = StrokeCap.Round))
     } else {
         val mouth = Path().apply {
             moveTo(center.x - halfW, center.y)
             quadraticTo(center.x, center.y + curve * 2f, center.x + halfW, center.y)
         }
-        drawPath(mouth, Color.White, style = Stroke(width = s * 0.03f, cap = StrokeCap.Round))
+        drawPath(mouth, Palette.Accent, style = Stroke(width = s * 0.024f, cap = StrokeCap.Round))
     }
 }

@@ -235,7 +235,7 @@ private fun IdlePanel(state: UiState, lines: Lines) {
                 .background(Palette.Accent)
                 .padding(horizontal = 18.dp, vertical = 9.dp),
         ) {
-            Text("👋  " + lines.tapToStart, color = Palette.AccentDark, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(lines.tapToStart, color = Palette.AccentDark, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         }
         if (state.heard.isNotBlank()) {
             Spacer(Modifier.height(10.dp))
@@ -250,7 +250,7 @@ private fun DrivingPanel(state: UiState, lines: Lines, actions: ReceptionActions
         Text(state.title, color = Palette.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold, lineHeight = 28.sp)
         if (state.subtitle.isNotBlank()) {
             Spacer(Modifier.height(4.dp))
-            Text("📍 " + state.subtitle, color = Palette.Muted, fontSize = 13.sp)
+            Text(state.subtitle, color = Palette.Muted, fontSize = 13.sp)
         }
         Spacer(Modifier.height(18.dp))
         if (state.showStop) {
@@ -358,7 +358,6 @@ private fun CameraView(frame: Bitmap?, mirror: Boolean, countdown: Int?, modifie
                 modifier = Modifier.fillMaxSize().graphicsLayer { scaleX = if (mirror) -1f else 1f },
             )
         } else {
-            Text("📷", fontSize = 28.sp)
         }
         // Oval: hier soll das Gesicht sein
         Canvas(Modifier.fillMaxSize()) {
