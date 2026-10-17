@@ -68,6 +68,7 @@ interface Lines {
     // Paketlieferung
     fun deliveryLeaveAtDesk(employee: String): String
     fun deliveryWaitForRecipient(employee: String): String
+    fun deliveryArrivedWaitingRoom(employee: String): String
 
     // Begleitung
     val followMe: String
@@ -174,8 +175,10 @@ object GermanLines : Lines {
 
     override fun deliveryLeaveAtDesk(employee: String) =
         "Vielen Dank! Ich habe $employee Bescheid gegeben. Bitte legen Sie das Paket am Empfang ab."
+    override fun deliveryArrivedWaitingRoom(employee: String) =
+        "Hier ist der Warteraum. Bitte warten Sie hier – $employee kommt gleich, um das Paket entgegenzunehmen und zu unterschreiben."
     override fun deliveryWaitForRecipient(employee: String) =
-        "Vielen Dank! Ich habe $employee Bescheid gegeben. Bitte warten Sie einen Moment, das Paket wird gleich abgeholt."
+        "Vielen Dank! Ich habe $employee Bescheid gegeben, dass eine Unterschrift nötig ist."
     override fun arrivalNotified(employee: String) = "Vielen Dank! Ich habe $employee Bescheid gegeben, dass Sie da sind."
     override fun arrivalFailed(employee: String) =
         "Ich konnte $employee leider nicht automatisch erreichen. Bitte nehmen Sie trotzdem im Warteraum Platz."
@@ -305,8 +308,10 @@ object EnglishLines : Lines {
 
     override fun deliveryLeaveAtDesk(employee: String) =
         "Thank you! I've let $employee know. Please leave the package at the reception desk."
+    override fun deliveryArrivedWaitingRoom(employee: String) =
+        "This is the waiting room. Please wait here – $employee will be with you shortly to take the package and sign for it."
     override fun deliveryWaitForRecipient(employee: String) =
-        "Thank you! I've let $employee know. Please wait a moment, someone will pick up the package shortly."
+        "Thank you! I've let $employee know that a signature is needed."
     override fun arrivalNotified(employee: String) = "Thank you! I've let $employee know that you're here."
     override fun arrivalFailed(employee: String) =
         "Unfortunately I couldn't reach $employee automatically. Please take a seat in the waiting room anyway."

@@ -674,7 +674,13 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         setMood(Mood.JOY)
-        say(if (result.waitForRecipient) l.deliveryWaitForRecipient(employee.name) else l.deliveryLeaveAtDesk(employee.name))
+        if (result.waitForRecipient) {
+            say(l.deliveryWaitForRecipient(employee.name))
+            // Unterschrift nötig → Bote wird in den Warteraum begleitet, bis der Empfänger kommt
+            escortToWaitingRoom(employee, arrivedLine = l.deliveryArrivedWaitingRoom(employee.name))
+        } else {
+            say(l.deliveryLeaveAtDesk(employee.name))
+        }
     }
 
     /** Zustelldienst per Touch, Sprache oder Tastatur. Liefert null bei Abbruch; "" wenn unbekannt. */
@@ -880,7 +886,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // =========================================== Begleitung in den Warteraum
-    private suspend fun escortToWaitingRoom(employee: Employee?) {
+    private suspend fun escortToWaitingRoom(employee: Employee?, arrivedLine: String? = null) {
         val l = lines
         setScreen(title = l.followMeTitle, subtitle = settings.waitingRoom, mood = Mood.JOY, phase = Phase.ESCORT)
         say(l.followMe)
@@ -896,7 +902,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
                 is NavResult.Arrived -> {
                     runCatching { AgentCore.isMicrophoneMuted = false }
                     setScreen(title = "🙂", subtitle = settings.waitingRoom, mood = Mood.JOY, phase = Phase.ESCORT)
-                    say(employee?.let { l.arrivedWaitingRoom(it.name) } ?: l.arrivedWaitingRoomGeneric)
+                    say(arrivedLine ?: employee?.let { l.arrivedWaitingRoom(it.name) } ?: l.arrivedWaitingRoomGeneric)
                     delay(settings.waitingRoomPauseSec * 1000L)
                 }
                 is NavResult.Cancelled -> return

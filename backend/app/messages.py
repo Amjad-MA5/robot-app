@@ -46,7 +46,7 @@ T = {
         "event_intro": "Termin vereinbart über den Empfangsroboter.",
         "event_visitor": "Besucher: {v}",
         # Paket
-        "pkg_wait": "Bitte kommen Sie zum Empfang und holen Sie das Paket ab.",
+        "pkg_wait": "Für das Paket ist Ihre Unterschrift nötig. Der Zusteller wartet im Warteraum auf Sie.",
         "pkg_leave": "Das Paket wird am Empfang für Sie hinterlegt.",
         "pkg_note": "Hinweis: {n}",
         "pkg_photo": "📷 Foto des Pakets",
@@ -98,7 +98,7 @@ T = {
         "event_subject": "Visit: {v}",
         "event_intro": "Appointment made via the reception robot.",
         "event_visitor": "Visitor: {v}",
-        "pkg_wait": "Please come to reception to pick up the package.",
+        "pkg_wait": "The package needs your signature. The courier is waiting for you in the waiting room.",
         "pkg_leave": "The package will be left at reception for you.",
         "pkg_note": "Note: {n}",
         "pkg_photo": "📷 Photo of the package",

@@ -234,6 +234,7 @@ def test_delivery_signature_and_package_log(client):
     )
     body = r.json()
     assert body["handling"] == "wait_for_recipient"
+    assert "waiting room" in client.get("/api/mock/inbox", headers=HEADERS).json()[0]["text"]
     pkgs = client.get("/api/packages", headers=HEADERS).json()
     assert pkgs[0]["id"] == body["package_id"] and pkgs[0]["status"] == "waiting"
     assert client.post(f"/api/packages/{body['package_id']}/collected", headers=HEADERS).json()["status"] == "collected"
