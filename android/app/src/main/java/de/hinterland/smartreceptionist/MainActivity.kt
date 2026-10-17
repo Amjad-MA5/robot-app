@@ -1,6 +1,8 @@
 package de.hinterland.smartreceptionist
 
+import android.Manifest
 import android.content.ActivityNotFoundException
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
 import android.view.WindowManager
@@ -23,6 +25,9 @@ import com.ainirobot.agent.OnAgentStatusChangedListener
 import com.ainirobot.agent.OnTranscribeListener
 import com.ainirobot.agent.PageAgent
 import com.ainirobot.agent.base.Transcription
+import de.hinterland.smartreceptionist.badge.CameraConfig
+import de.hinterland.smartreceptionist.badge.NoCamera
+import de.hinterland.smartreceptionist.badge.RobotCamera
 import de.hinterland.smartreceptionist.flow.ReceptionViewModel
 import de.hinterland.smartreceptionist.net.Employee
 import de.hinterland.smartreceptionist.robot.RobotController
@@ -44,10 +49,22 @@ class MainActivity : ComponentActivity() {
         vm.onPhotoResult(ok)
     }
 
+    // Camera for the badge photo: ask for the permission at start-up, not when a guest is already waiting
+    private val cameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        Log.i("MainActivity", "Camera permission ${if (granted) "granted" else "denied"}")
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemBars()
+
+        if (vm.camera === NoCamera) {
+            vm.camera = RobotCamera(this) { CameraConfig(vm.settings.cameraRotation, vm.settings.cameraSource) }
+        }
+        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            runCatching { cameraPermission.launch(Manifest.permission.CAMERA) }
+        }
 
         // Fahrwerk/Navigation/Sensorik über die RobotAPI (nur im Vordergrund erlaubt)
         if (RobotController.isCoreServiceInstalled(this)) {
@@ -65,6 +82,10 @@ class MainActivity : ComponentActivity() {
                 } catch (e: ActivityNotFoundException) {
                     Log.w("MainActivity", "Keine Kamera-App gefunden", e)
                     vm.onPhotoResult(false)
+                } catch (e: SecurityException) {
+                    // The manifest declares CAMERA (badge photo): without that permission the camera app intent is refused
+                    Log.w("MainActivity", "Camera permission missing for the package photo", e)
+                    vm.onPhotoResult(false)
                 }
             }
         }
@@ -72,6 +93,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             ReceptionTheme {
                 val state by vm.ui.collectAsStateWithLifecycle()
+                val cameraFrame by vm.camera.preview.collectAsStateWithLifecycle()
                 var showPin by remember { mutableStateOf(false) }
                 var showAdmin by remember { mutableStateOf(false) }
                 val lines = linesFor(vm.settings.language)
@@ -95,7 +117,7 @@ class MainActivity : ComponentActivity() {
                             override fun onCancel() = vm.cancel()
                             override fun onStop() = vm.stopDriving()
                             override fun onAdminRequested() { showPin = true }
-                        })
+                        }, cameraFrame)
                     }
                 }
                 if (showPin) {

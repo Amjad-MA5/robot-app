@@ -38,6 +38,21 @@ data class AppSettings(
     val deliveryPhoto: Boolean = false,
     /** PIN für den Admin-Bereich */
     val adminPin: String = "1234",
+    /** Print a visitor badge with photo when a guest with an appointment arrives */
+    val badgeEnabled: Boolean = true,
+    /**
+     * IPP address of the office printer. The robot sends the badge there itself, because a cloud
+     * backend cannot reach the office network. Empty = the backend prints (backend in the office network).
+     */
+    val printerUrl: String = "http://192.168.0.233/ipp",
+    /** Camera rotation in degrees (0/90/180/270), -1 = automatic */
+    val cameraRotation: Int = -1,
+    /** "auto", "shared" (robot's video stream) or "camera2" (Android camera) */
+    val cameraSource: String = "auto",
+    /** Mirror the preview so the guest sees themselves like in a mirror */
+    val cameraMirror: Boolean = true,
+    /** Where to pick up the badge, e.g. "at the printer next to reception" (empty = default text) */
+    val badgePickupHint: String = "",
 ) {
     val isGerman: Boolean get() = language != "en"
 
@@ -63,6 +78,12 @@ data class AppSettings(
                 useLlm = p.getBoolean("useLlm", d.useLlm),
                 deliveryPhoto = p.getBoolean("deliveryPhoto", d.deliveryPhoto),
                 adminPin = p.getString("adminPin", d.adminPin) ?: d.adminPin,
+                badgeEnabled = p.getBoolean("badgeEnabled", d.badgeEnabled),
+                printerUrl = p.getString("printerUrl", d.printerUrl) ?: d.printerUrl,
+                cameraRotation = p.getInt("cameraRotation", d.cameraRotation),
+                cameraSource = p.getString("cameraSource", d.cameraSource) ?: d.cameraSource,
+                cameraMirror = p.getBoolean("cameraMirror", d.cameraMirror),
+                badgePickupHint = p.getString("badgePickupHint", d.badgePickupHint) ?: d.badgePickupHint,
             )
         }
 
@@ -84,6 +105,12 @@ data class AppSettings(
                 .putBoolean("useLlm", s.useLlm)
                 .putBoolean("deliveryPhoto", s.deliveryPhoto)
                 .putString("adminPin", s.adminPin.trim())
+                .putBoolean("badgeEnabled", s.badgeEnabled)
+                .putString("printerUrl", s.printerUrl.trim())
+                .putInt("cameraRotation", s.cameraRotation)
+                .putString("cameraSource", s.cameraSource)
+                .putBoolean("cameraMirror", s.cameraMirror)
+                .putString("badgePickupHint", s.badgePickupHint.trim())
                 .apply()
         }
     }

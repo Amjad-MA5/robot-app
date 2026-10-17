@@ -8,6 +8,13 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ainirobot.agent.AgentCore
+import de.hinterland.smartreceptionist.badge.BadgeLines
+import de.hinterland.smartreceptionist.badge.IppPrinter
+import de.hinterland.smartreceptionist.badge.IppResult
+import de.hinterland.smartreceptionist.badge.LocalBadge
+import de.hinterland.smartreceptionist.badge.NoCamera
+import de.hinterland.smartreceptionist.badge.PhotoCamera
+import de.hinterland.smartreceptionist.badge.badgeLinesFor
 import de.hinterland.smartreceptionist.config.AppSettings
 import de.hinterland.smartreceptionist.net.BackendClient
 import de.hinterland.smartreceptionist.net.BackendException
@@ -61,6 +68,10 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
     private var backend = BackendClient(settings.backendUrl, settings.apiKey)
     private var companyName: String = settings.companyName
     private val understander = Understander { settings.useLlm }
+
+    /** Camera for the badge photo - set by MainActivity (RobotCamera); without a camera the badge has no photo */
+    var camera: PhotoCamera = NoCamera
+    private val badgeLines: BadgeLines get() = badgeLinesFor(settings.language)
 
     private val inputs = Channel<UserInput>(Channel.UNLIMITED)
 
@@ -648,6 +659,8 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
             setMood(Mood.SAD)
             say(l.arrivalFailed(employee.name))
         }
+        // Security: guests with an appointment get a visitor badge with photo, name and ID
+        if (settings.badgeEnabled) issueBadge(visit, employee)
         escortToWaitingRoom(employee)
     }
 
@@ -944,6 +957,202 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ================================================ Visitor badge
+    /**
+     * Photo (only with consent) -> badge -> printout on the office printer.
+     * Without camera, without consent or on errors the badge is printed without a photo;
+     * if printing fails, the visit simply continues.
+     */
+    private suspend fun issueBadge(visit: Visit, employee: Employee) {
+        val b = badgeLines
+        var photo: ByteArray? = null
+        try {
+            val question = b.askPhoto
+            val consent = ask(
+                question,
+                subtitle = b.photoPrivacy,
+                options = listOf(UiOption(OPT_PHOTO_YES, b.optPhotoYes, primary = true), UiOption(OPT_PHOTO_NO, b.optNoPhoto)),
+            )
+            val wantsPhoto = when (consent) {
+                is UserInput.Option -> consent.id == OPT_PHOTO_YES
+                is UserInput.Voice, is UserInput.Typed -> interpret(consent, Step.YES_NO, question)?.answer == true
+                else -> false
+            }
+            if (wantsPhoto) photo = takeBadgePhoto() else say(b.noPhotoOk)
+
+            setScreen(title = b.printingTitle, subtitle = b.printing, mood = Mood.THINKING)
+            val speech = viewModelScope.launch { say(b.printing) }
+            val outcome = try {
+                createAndPrintBadge(visit.visitorName.orEmpty(), employee, visit.purpose, photo)
+            } finally {
+                photo = null // forget the photo right away - it only exists on the printout
+            }
+            speech.join()
+            if (outcome.previewJpeg != null) {
+                _ui.update { it.copy(badgePreview = outcome.previewJpeg, photoMode = null, photo = null) }
+                setScreen(title = b.badgeTitle, subtitle = outcome.id, mood = if (outcome.printed) Mood.JOY else Mood.SAD)
+            }
+            if (outcome.printed) {
+                say(b.printed(pickupHint()))
+                delay(1_500) // keep the badge preview on screen for a moment
+            } else {
+                Log.w(TAG, "Badge not printed: ${outcome.detail}")
+                setMood(Mood.SAD)
+                say(b.printFailed)
+            }
+        } finally {
+            photo = null
+            camera.close()
+            _ui.update { it.copy(photoMode = null, photo = null, countdown = null, badgePreview = null) }
+        }
+    }
+
+    private class BadgeOutcome(val id: String, val previewJpeg: ByteArray?, val printed: Boolean, val detail: String)
+
+    /**
+     * Normally the backend draws the badge (with QR code) and returns the PDF, and the robot sends it to
+     * the printer itself - the robot is in the office network, a cloud backend is not.
+     * If the backend is unreachable, the robot draws the badge itself (without QR code) and prints it anyway.
+     * With an empty printer address the backend prints (for a backend running in the office network).
+     */
+    private suspend fun createAndPrintBadge(visitor: String, employee: Employee, purpose: String, photo: ByteArray?): BadgeOutcome {
+        val printerUrl = settings.printerUrl.trim()
+        val robotPrints = printerUrl.isNotEmpty()
+        val created = if (robotPrints && _ui.value.backendOk == false) {
+            null // health check already failed - do not keep the visitor waiting for a timeout
+        } else {
+            try {
+                backend.createBadge(
+                    visitor, employee, purpose, settings.language, photo,
+                    print = !robotPrints, returnPdf = robotPrints, timeoutMs = if (robotPrints) 20_000 else 45_000,
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Backend could not create the badge", e)
+                null
+            }
+        }
+        if (!robotPrints) {
+            return BadgeOutcome(created?.id.orEmpty(), created?.previewJpeg, created?.printed == true, created?.printDetail ?: "backend unreachable")
+        }
+
+        var badgeId = created?.id?.takeIf { it.isNotBlank() }
+        var preview = created?.previewJpeg
+        var pdf = created?.pdf
+        if (pdf == null) {
+            Log.i(TAG, "Drawing the badge on the robot (backend unavailable)")
+            val local = try {
+                withContext(Dispatchers.Default) {
+                    LocalBadge.render(
+                        visitorName = visitor,
+                        hostName = employee.name,
+                        company = companyName,
+                        photoJpeg = photo,
+                        english = !settings.isGerman,
+                        badgeId = badgeId ?: LocalBadge.newId(),
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Log.w(TAG, "Could not draw the badge on the robot", t)
+                return BadgeOutcome(badgeId.orEmpty(), preview, false, "badge could not be drawn: ${t.message}")
+            }
+            badgeId = local.id
+            preview = local.previewJpeg
+            pdf = local.pdf
+        }
+        val id = badgeId ?: LocalBadge.newId()
+        val document: ByteArray = pdf ?: return BadgeOutcome(id, preview, false, "no PDF")
+        val result = withContext(Dispatchers.IO) {
+            // A malformed printer address must not end the conversation
+            runCatching { IppPrinter(printerUrl).printPdf("Visitor badge $id", document) }
+                .getOrElse { IppResult(false, -1, it.message ?: it.javaClass.simpleName) }
+        }
+        Log.i(TAG, "Badge $id sent to $printerUrl: ${result.detail} (job ${result.jobId})")
+        if (created != null) {
+            runCatching { backend.reportBadgePrinted(created.id, result.ok, "robot-ipp", result.detail, result.jobId) }
+                .onFailure { Log.w(TAG, "Could not report the print result to the backend", it) }
+        }
+        return BadgeOutcome(id, preview, result.ok, result.detail)
+    }
+
+    private fun pickupHint(): String =
+        settings.badgePickupHint.ifBlank { if (settings.isGerman) "am Drucker" else "at the printer" }
+
+    /** Camera on, the visitor sees themselves, countdown, photo, "Is it okay?". null = no photo. */
+    private suspend fun takeBadgePhoto(): ByteArray? {
+        val b = badgeLines
+        setScreen(title = b.lookAtCameraTitle, subtitle = b.photoPrivacy, mood = Mood.THINKING)
+        val opened = try {
+            camera.open()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Log.w(TAG, "Could not open the camera", t)
+            false
+        }
+        if (!opened) {
+            setMood(Mood.SAD)
+            say(b.cameraUnavailable)
+            return null
+        }
+        try {
+            var lastShot: ByteArray? = null
+            for (attempt in 0 until MAX_PHOTO_ATTEMPTS) {
+                _ui.update { it.copy(photoMode = PhotoMode.LIVE, photo = null, countdown = null, mirrorPreview = settings.cameraMirror) }
+                setScreen(title = b.lookAtCameraTitle, subtitle = b.photoPrivacy, mood = Mood.HAPPY)
+                say(if (attempt == 0) b.lookAtCamera else b.smile)
+                for (n in 3 downTo 1) {
+                    _ui.update { it.copy(countdown = n) }
+                    delay(COUNTDOWN_STEP_MS)
+                }
+                _ui.update { it.copy(countdown = 0) } // short "flash" in the UI
+                val shot = camera.takePhoto()
+                delay(250)
+                _ui.update { it.copy(countdown = null) }
+                if (shot == null) break
+                lastShot = shot
+                _ui.update { it.copy(photoMode = PhotoMode.REVIEW, photo = shot) }
+
+                val options = listOf(
+                    UiOption(OPT_PHOTO_OK, b.optPhotoOk, primary = true),
+                    UiOption(OPT_PHOTO_RETAKE, b.optRetake),
+                    UiOption(OPT_PHOTO_NO, b.optNoPhoto),
+                )
+                val decision = ask(b.reviewQuestion, options = options, timeoutMs = 12_000)
+                    ?: return shot // no answer -> keep the photo
+                when (decision) {
+                    is UserInput.Option -> when (decision.id) {
+                        OPT_PHOTO_OK -> return shot
+                        OPT_PHOTO_NO -> return null
+                        else -> continue
+                    }
+                    is UserInput.Voice, is UserInput.Typed -> {
+                        val text = (decision as? UserInput.Voice)?.text ?: (decision as UserInput.Typed).text
+                        when {
+                            WITHOUT_PHOTO.containsMatchIn(text.lowercase()) -> return null
+                            RETAKE.containsMatchIn(text.lowercase()) -> continue
+                            else -> when (interpret(decision, Step.YES_NO, b.reviewQuestion)?.answer) {
+                                true, null -> return shot
+                                false -> continue
+                            }
+                        }
+                    }
+                    is UserInput.Cancel -> return null
+                    else -> return shot
+                }
+            }
+            if (lastShot == null) say(b.cameraUnavailable)
+            return lastShot
+        } finally {
+            // Release the camera right away so the robot's person detection works again
+            camera.close()
+            _ui.update { it.copy(photoMode = null, countdown = null) }
+        }
+    }
+
     // ================================================================= Ende
     private suspend fun noResponse(): Boolean {
         say(lines.noResponse)
@@ -968,6 +1177,14 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         const val OPT_MORE = "slots:more"
         const val OPT_SLOT = "slot:"
         const val OPT_ALL_EMPLOYEES = "employees:all"
+        const val OPT_PHOTO_YES = "photo:yes"
+        const val OPT_PHOTO_NO = "photo:no"
+        const val OPT_PHOTO_OK = "photo:ok"
+        const val OPT_PHOTO_RETAKE = "photo:retake"
+        private const val MAX_PHOTO_ATTEMPTS = 3
+        private const val COUNTDOWN_STEP_MS = 800L
+        private val RETAKE = Regex("nochmal|noch mal|neues|neu machen|wiederholen|again|another|retake|new one")
+        private val WITHOUT_PHOTO = Regex("ohne foto|kein foto|keine foto|without (a )?photo|no photo")
 
         /** Name säubern; Unsinn ("unknown", Einzelbuchstaben) verwerfen. */
         fun cleanName(raw: String?): String? {

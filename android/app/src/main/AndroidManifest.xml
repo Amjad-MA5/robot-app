@@ -10,6 +10,10 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Roboter-Einstellungen (RobotOS) -->
     <uses-permission android:name="com.ainirobot.coreservice.robotSettingProvider" />
+    <!-- Visitor badge: photo of the guest (only with consent, deleted after printing) -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.front" android:required="false" />
     <!-- In-App-Update: heruntergeladene APK installieren -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission

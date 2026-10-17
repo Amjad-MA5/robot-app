@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visitor badges</title>
+<style>
+  :root {
+    --bg: #f4f6fb; --card: #ffffff; --text: #14213d; --muted: #5c6784; --line: #e3e7f0;
+    --accent: #2f6fed; --accent-soft: #e6eeff; --ok: #1b9e5a; --ok-soft: #e3f6ec; --warn: #c27c0e; --warn-soft: #fff3dc;
+    --err: #c23a3a; --err-soft: #fde8e8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1424; --card: #171e33; --text: #e8ecf7; --muted: #9aa4c0; --line: #27304a;
+      --accent: #6d9bff; --accent-soft: #1d2a4d; --ok: #4fd18b; --ok-soft: #133224; --warn: #f0b04a; --warn-soft: #3a2c10;
+      --err: #ff7a7a; --err-soft: #3a1717;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  header { padding: 20px 16px 8px; max-width: 1180px; margin: 0 auto; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  header h1 { font-size: 22px; margin: 0; }
+  main { max-width: 1180px; margin: 0 auto; padding: 8px 16px 40px; display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; min-width: 0; }
+  .card h2 { font-size: 16px; margin: 0 0 10px; }
+  .wide { grid-column: 1 / -1; }
+  .muted { color: var(--muted); font-size: 13px; }
+  button, .btn { font: inherit; border: 0; border-radius: 10px; padding: 8px 14px; background: var(--accent); color: #fff; cursor: pointer; text-decoration: none; display: inline-block; }
+  button.secondary, .btn.secondary { background: var(--accent-soft); color: var(--accent); }
+  button.danger { background: var(--err-soft); color: var(--err); }
+  input { font: inherit; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); width: 100%; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+  .row > * { flex: 1 1 140px; }
+  .row > button { flex: 0 0 auto; }
+  .list { display: flex; flex-direction: column; gap: 8px; max-height: 520px; overflow: auto; }
+  .item { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .item .grow { flex: 1 1 200px; min-width: 0; }
+  .pill { font-size: 12px; padding: 2px 8px; border-radius: 99px; display: inline-block; }
+  .pill.ok { background: var(--ok-soft); color: var(--ok); }
+  .pill.warn { background: var(--warn-soft); color: var(--warn); }
+  .pill.err { background: var(--err-soft); color: var(--err); }
+  .qr { background: #fff; border-radius: 8px; padding: 4px; width: 84px; height: 84px; flex: 0 0 auto; }
+  .qr svg { width: 100%; height: 100%; }
+  .preview img { width: 100%; max-width: 420px; border-radius: 10px; border: 1px solid var(--line); display: block; }
+  .out { white-space: pre-wrap; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; background: var(--bg); border-radius: 10px; padding: 10px; max-height: 260px; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td { padding: 4px 0; vertical-align: top; }
+  td:first-child { color: var(--muted); width: 45%; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🪪 Visitor badges</h1>
+  <a class="btn secondary" href="/">← Overview</a>
+  <span class="muted" id="info"></span>
+</header>
+<main>
+  <section class="card">
+    <h2>Printer (as seen from the backend)</h2>
+    <table id="printer"><tr><td>Status</td><td>…</td></tr></table>
+    <div class="row">
+      <button id="refreshPrinter" class="secondary">Check status</button>
+      <button id="validate" class="secondary" title="Asks the printer whether it would accept the job - no paper used">Validate job (no print)</button>
+      <button id="testPrint">Print test badge</button>
+    </div>
+    <p class="muted">Printing over IPP straight to the printer (no driver needed). Settings: <code>SR_PRINTER_URL</code>, <code>SR_PRINTER_METHODS</code>. When the backend runs in the cloud it cannot reach the office printer - the robot then prints the badge itself.</p>
+  </section>
+
+  <section class="card">
+    <h2>Test access (like a door reader)</h2>
+    <div class="row"><input id="token" placeholder="Token from the QR code (part after /v/)"></div>
+    <div class="row"><input id="door" placeholder="Zone, e.g. Waiting room or Lab"><button id="check">Check</button></div>
+    <div class="out" id="checkOut">—</div>
+  </section>
+
+  <section class="card wide">
+    <h2>Active badges</h2>
+    <p class="muted">Photos are never stored. On checkout - at the latest when the badge expires - all of the visitor's data is deleted.</p>
+    <div class="list" id="badges"><span class="muted">—</span></div>
+  </section>
+
+  <section class="card">
+    <h2>Print preview (demo mode)</h2>
+    <p class="muted">Only with <code>SR_PRINTER_METHODS=mock</code>: shows what would have been printed.</p>
+    <div class="list preview" id="outbox"><span class="muted">—</span></div>
+  </section>
+
+  <section class="card">
+    <h2>Event log (no personal data)</h2>
+    <div class="list" id="events"><span class="muted">—</span></div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let key = "";
+try { key = localStorage.getItem("srApiKey") || ""; } catch (e) {}
+if (!key) { key = prompt("API key (SR_API_KEY)") || ""; try { localStorage.setItem("srApiKey", key); } catch (e) {} }
+
+async function api(path, options = {}) {
+  const res = await fetch(path, { ...options, headers: { "Content-Type": "application/json", "X-Api-Key": key, ...(options.headers || {}) } });
+  const ct = res.headers.get("content-type") || "";
+  const body = ct.includes("json") ? await res.json().catch(() => ({})) : await res.text();
+  if (!res.ok) throw new Error((body && body.detail) || ("HTTP " + res.status));
+  return body;
+}
+const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmt = (iso) => new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+
+async function loadPrinter() {
+  try {
+    const s = await api("/api/printer/status");
+    const ok = s.reachable === true;
+    const rows = [
+      ["Status", s.reachable === null || s.reachable === undefined
+        ? `<span class="pill warn">not checked (IPP disabled)</span>`
+        : ok ? `<span class="pill ok">reachable · ${esc(s.state)}</span>` : `<span class="pill err">not reachable</span>`],
+      ["Model", esc(s.model || "–")],
+      ["Address", esc(s.url || "–")],
+      ["Print methods", esc((s.methods || []).join(" → "))],
+      ["Accepting jobs", s.accepting_jobs === true ? "yes" : s.accepting_jobs === false ? "no" : "–"],
+      ["Direct PDF printing", s.pdf_supported ? "yes" : "–"],
+    ];
+    if (s.detail) rows.push(["Note", esc(s.detail)]);
+    $("printer").innerHTML = rows.map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join("");
+  } catch (e) { $("printer").innerHTML = `<tr><td>Error</td><td>${esc(e.message)}</td></tr>`; }
+}
+
+async function loadBadges() {
+  try {
+    const list = await api("/api/badges");
+    $("info").textContent = `${list.length} active badge${list.length === 1 ? "" : "s"}`;
+    if (!list.length) { $("badges").innerHTML = '<span class="muted">No active badges.</span>'; return; }
+    $("badges").innerHTML = list.map((b) => {
+      const p = b.print_info || {};
+      const pill = p.sent ? `<span class="pill ok">printed (${esc(p.method)})</span>` : `<span class="pill warn">${esc(p.detail || "not printed")}</span>`;
+      return `<div class="item"><div class="qr" data-qr="${esc(b.id)}"></div>
+        <div class="grow"><b>${esc(b.visitor_name)}</b> · ${esc(b.id)} ${b.has_photo ? "📷" : ""}<br>
+        <span class="muted">Host: ${esc(b.employee_name || "–")} · since ${fmt(b.created_at)} · valid until ${fmt(b.valid_until)} · ${b.scan_count} scan(s)</span><br>${pill}</div>
+        <button class="danger" data-checkout="${esc(b.id)}">Check out &amp; delete data</button></div>`;
+    }).join("");
+    for (const el of document.querySelectorAll("[data-qr]")) {
+      api(`/api/badges/${encodeURIComponent(el.dataset.qr)}/qr.svg`).then((svg) => { el.innerHTML = svg; }).catch(() => {});
+    }
+    for (const el of document.querySelectorAll("[data-checkout]")) {
+      el.onclick = async () => {
+        if (!confirm("End this visit and delete all of this visitor's data?")) return;
+        try { await api(`/api/badges/${encodeURIComponent(el.dataset.checkout)}/checkout`, { method: "POST" }); refresh(); } catch (e) { alert(e.message); }
+      };
+    }
+  } catch (e) { $("badges").innerHTML = `<span class="muted">${esc(e.message)}</span>`; }
+}
+
+async function loadOutbox() {
+  try {
+    const list = await api("/api/printer/outbox");
+    $("outbox").innerHTML = list.length
+      ? list.map((m) => `<div><span class="muted">${fmt(m.time)} · ${esc(m.badge_id)}</span><img alt="Badge" src="data:image/jpeg;base64,${m.preview_jpeg_base64}"></div>`).join("")
+      : '<span class="muted">—</span>';
+  } catch (e) { $("outbox").innerHTML = `<span class="muted">${esc(e.message)}</span>`; }
+}
+
+async function loadEvents() {
+  try {
+    const list = await api("/api/badges/events");
+    $("events").innerHTML = list.length
+      ? list.map((e) => `<div class="item"><span class="muted">${fmt(e.time)}</span> <b>${esc(e.badge)}</b> ${esc(e.event)}</div>`).join("")
+      : '<span class="muted">—</span>';
+  } catch (e) { $("events").innerHTML = `<span class="muted">${esc(e.message)}</span>`; }
+}
+
+function refresh() { loadBadges(); loadOutbox(); loadEvents(); }
+
+$("refreshPrinter").onclick = loadPrinter;
+$("validate").onclick = async () => {
+  try { const r = await api("/api/printer/validate", { method: "POST" }); alert((r.ok ? "✔ The printer would accept the job: " : "✖ ") + r.detail); }
+  catch (e) { alert(e.message); }
+};
+$("testPrint").onclick = async () => {
+  if (!confirm("Print a test badge (without photo) on the printer?")) return;
+  try { const r = await api("/api/printer/test", { method: "POST" }); alert((r.sent ? "✔ Sent via " + r.method : "✖ Error") + (r.detail ? ": " + r.detail : "")); refresh(); }
+  catch (e) { alert(e.message); }
+};
+$("check").onclick = async () => {
+  try { const r = await api("/api/access/check", { method: "POST", body: JSON.stringify({ token: $("token").value.trim(), door: $("door").value.trim() }) });
+    $("checkOut").textContent = (r.allowed ? "✔ Access granted" : "✖ Access denied") + "\n" + JSON.stringify(r, null, 2); refresh(); }
+  catch (e) { $("checkOut").textContent = e.message; }
+};
+
+loadPrinter();
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

@@ -11,6 +11,7 @@ import java.net.URL
 import java.net.URLEncoder
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
+import java.util.Base64
 
 data class Employee(
     val id: String,
@@ -51,6 +52,20 @@ data class BookingResult(val created: Boolean, val slot: Slot, val notified: Boo
 data class BackendHealth(val company: String, val mode: String)
 
 data class AppVersionInfo(val available: Boolean, val versionCode: Int, val versionName: String, val downloadPath: String)
+
+/** Result of POST /api/badges: the badge was created (and printed by the backend, if requested). */
+data class BadgeResult(
+    val id: String,
+    val printed: Boolean,
+    val printMethod: String,
+    val printDetail: String,
+    /** Card preview as JPEG - only for the screen, never stored */
+    val previewJpeg: ByteArray?,
+    /** Print-ready A4 page, only when requested with returnPdf - the robot sends it to the printer */
+    val pdf: ByteArray?,
+)
+
+data class PrinterTestResult(val sent: Boolean, val method: String, val detail: String, val pdf: ByteArray?)
 
 class BackendException(message: String, val httpCode: Int = 0) : IOException(message) {
     val isConflict: Boolean get() = httpCode == 409
@@ -135,6 +150,69 @@ class BackendClient(baseUrl: String, private val apiKey: String) {
         )
     }
 
+    /**
+     * Creates a visitor badge. The photo (JPEG) is optional and only processed in memory.
+     * [print] = the backend prints itself; [returnPdf] = the PDF comes back so the robot can print it.
+     */
+    suspend fun createBadge(
+        visitor: String,
+        employee: Employee?,
+        purpose: String,
+        language: String,
+        photoJpeg: ByteArray?,
+        print: Boolean = true,
+        returnPdf: Boolean = false,
+        timeoutMs: Int = 45_000,
+    ): BadgeResult {
+        val body = JSONObject()
+            .put("visitor_name", visitor)
+            .put("employee_id", employee?.id ?: "")
+            .put("employee_name", employee?.name ?: "")
+            .put("purpose", purpose)
+            .put("language", language)
+            .put("print", print)
+            .put("return_pdf", returnPdf)
+        if (photoJpeg != null) body.put("photo_jpeg_base64", Base64.getEncoder().encodeToString(photoJpeg))
+        val o = JSONObject(request("POST", "/api/badges", body, timeoutMs = timeoutMs))
+        val printInfo = o.optJSONObject("print")
+        return BadgeResult(
+            id = o.optString("id"),
+            printed = printInfo?.optBoolean("sent") ?: false,
+            printMethod = printInfo?.optString("method") ?: "",
+            printDetail = printInfo?.optString("detail") ?: "",
+            previewJpeg = decodeBase64(o, "preview_jpeg_base64"),
+            pdf = decodeBase64(o, "print_pdf_base64"),
+        )
+    }
+
+    /** Tells the backend whether the robot managed to print the badge (shown in the dashboard). */
+    suspend fun reportBadgePrinted(badgeId: String, sent: Boolean, method: String, detail: String, jobId: Int?) {
+        val body = JSONObject().put("sent", sent).put("method", method).put("detail", detail).put("job_id", jobId ?: JSONObject.NULL)
+        request("POST", "/api/badges/${URLEncoder.encode(badgeId, "UTF-8")}/printed", body)
+    }
+
+    /** Printer status as seen from the backend, as a short text for the admin area */
+    suspend fun printerStatus(): String {
+        val o = JSONObject(request("GET", "/api/printer/status"))
+        return if (o.optBoolean("reachable")) {
+            "${o.optString("model")} · ${o.optString("state")}"
+        } else {
+            "not reachable: ${o.optString("detail", o.optString("url"))}"
+        }
+    }
+
+    /** Test badge without photo: printed by the backend, or returned as PDF for the robot */
+    suspend fun printerTest(print: Boolean = true, returnPdf: Boolean = false): PrinterTestResult {
+        val body = JSONObject().put("print", print).put("return_pdf", returnPdf)
+        val o = JSONObject(request("POST", "/api/printer/test", body, timeoutMs = 45_000))
+        return PrinterTestResult(
+            sent = o.optBoolean("sent"),
+            method = o.optString("method"),
+            detail = o.optString("detail"),
+            pdf = decodeBase64(o, "print_pdf_base64"),
+        )
+    }
+
     suspend fun latestApp(): AppVersionInfo {
         val o = JSONObject(request("GET", "/api/app/latest", auth = false))
         return AppVersionInfo(
@@ -173,12 +251,18 @@ class BackendClient(baseUrl: String, private val apiKey: String) {
     }
 
     // ------------------------------------------------------------------ Intern
-    private suspend fun request(method: String, path: String, body: JSONObject? = null, auth: Boolean = true): String =
+    private suspend fun request(
+        method: String,
+        path: String,
+        body: JSONObject? = null,
+        auth: Boolean = true,
+        timeoutMs: Int = 20_000,
+    ): String =
         withContext(Dispatchers.IO) {
             val conn = (URL(base + path).openConnection() as HttpURLConnection).apply {
                 requestMethod = method
                 connectTimeout = 5000
-                readTimeout = 20000
+                readTimeout = timeoutMs
                 setRequestProperty("Accept", "application/json")
                 if (auth) setRequestProperty("X-Api-Key", apiKey)
                 if (body != null) {
@@ -202,6 +286,13 @@ class BackendClient(baseUrl: String, private val apiKey: String) {
         }
 
     companion object {
+        /** null for missing/null fields - JSONObject.optString would return the text "null" */
+        private fun decodeBase64(o: JSONObject, key: String): ByteArray? {
+            if (!o.has(key) || o.isNull(key)) return null
+            val text = o.optString(key).takeIf { it.isNotBlank() } ?: return null
+            return runCatching { Base64.getDecoder().decode(text) }.getOrNull()
+        }
+
         fun parseEmployee(o: JSONObject) = Employee(
             id = o.getString("id"),
             name = o.optString("name"),

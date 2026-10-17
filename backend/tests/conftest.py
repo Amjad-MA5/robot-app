@@ -1,8 +1,12 @@
-"""Tests must never use the developer's real .env: no real SMTP, always demo mode."""
+"""Tests must never use the developer's real .env: no real SMTP, no real printing, always demo mode."""
 import os
+import tempfile
 
 # load_dotenv() does not override variables that are already set, even empty ones.
 for name in ("SR_SMTP_HOST", "SR_SMTP_USERNAME", "SR_SMTP_PASSWORD", "SR_SMTP_FROM"):
     os.environ[name] = ""
 os.environ["SR_SMTP_SECURITY"] = "starttls"
 os.environ["SR_MODE"] = "mock"
+# Visitor badges: never send anything to the real printer, never touch real badge data.
+os.environ["SR_PRINTER_METHODS"] = "mock"
+os.environ["SR_BADGE_STORE"] = os.path.join(tempfile.mkdtemp(prefix="sr-badges-"), "badges.json")
