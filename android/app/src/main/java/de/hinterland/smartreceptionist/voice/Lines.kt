@@ -40,6 +40,14 @@ interface Lines {
     val chooseEmployee: String
     val showAllEmployees: String
     fun employeeOk(name: String): String
+    val messageEmployeeButton: String
+    fun messageEmployeeTitle(name: String): String
+    val messageAccountLimit: String
+    fun teamsDraftMessage(name: String): String
+    val openTeamsDraft: String
+    val composeEmail: String
+    val teamsLinkUnavailable: String
+    val emailAppUnavailable: String
 
     // Szenario 1
     fun arrivalNotified(employee: String): String
@@ -125,6 +133,16 @@ object GermanLines : Lines {
     override val chooseEmployee = "Ich habe mehrere passende Personen gefunden. Bitte tippen Sie auf die richtige."
     override val showAllEmployees = "Alle Mitarbeitenden anzeigen"
     override fun employeeOk(name: String) = "Alles klar, $name."
+    override val messageEmployeeButton = "Nachricht"
+    override fun messageEmployeeTitle(name: String) = "Nachricht an $name"
+    override val messageAccountLimit =
+        "Microsoft Graph unterstützt das direkte Senden mit persönlichen Microsoft-Konten nicht. Teams kann einen Nachrichtenentwurf für unterstützte Geschäfts- oder Schulkonten öffnen; bitte prüfen und selbst senden. Alternativ können Sie eine E-Mail verfassen."
+    override fun teamsDraftMessage(name: String) =
+        "Hallo $name, ein Besucher am Empfang möchte mit Ihnen sprechen."
+    override val openTeamsDraft = "Teams-Entwurf"
+    override val composeEmail = "E-Mail verfassen"
+    override val teamsLinkUnavailable = "Keine App kann den Teams-Link öffnen."
+    override val emailAppUnavailable = "Keine E-Mail-App verfügbar."
 
     override fun arrivalNotified(employee: String) = "Vielen Dank! Ich habe $employee Bescheid gegeben, dass Sie da sind."
     override fun arrivalFailed(employee: String) =
@@ -230,6 +248,16 @@ object EnglishLines : Lines {
     override val chooseEmployee = "I found several matching people. Please tap the right one."
     override val showAllEmployees = "Show all employees"
     override fun employeeOk(name: String) = "Alright, $name."
+    override val messageEmployeeButton = "Message"
+    override fun messageEmployeeTitle(name: String) = "Message $name"
+    override val messageAccountLimit =
+        "Microsoft Graph doesn't support sending Teams messages with personal Microsoft accounts. Teams can open a message draft for supported work or school accounts; review it and press Send. Or compose an email instead."
+    override fun teamsDraftMessage(name: String) =
+        "Hello $name, a visitor at reception would like to speak with you."
+    override val openTeamsDraft = "Teams draft"
+    override val composeEmail = "Compose email"
+    override val teamsLinkUnavailable = "No app is available to open the Teams link."
+    override val emailAppUnavailable = "No email app is available."
 
     override fun arrivalNotified(employee: String) = "Thank you! I've let $employee know that you're here."
     override fun arrivalFailed(employee: String) =

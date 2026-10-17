@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: smart-receptionist-backend
+    runtime: docker
+    plan: free
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: SR_MODE
+        value: mock
+      - key: SR_MOCK_TEAMS
+        value: true
+      - key: SR_GRAPH_AUTH
+        value: delegated
+      - key: SR_GRAPH_TENANT_ID
+        sync: false
+      - key: SR_GRAPH_CLIENT_ID
+        sync: false
+      - key: SR_NOTIFY_CHANNELS
+        value: teams
+      - key: SR_API_KEY
+        generateValue: true
+      - key: SR_COMPANY_NAME
+        value: Hinterland Hack
+      - key: SR_TIMEZONE
+        value: Europe/Berlin

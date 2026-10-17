@@ -14,7 +14,8 @@ from datetime import datetime, timedelta
 from .. import clock
 from ..config import Settings
 from ..models import BusyBlock, Employee, NotificationResult
-from .base import Provider
+from .base import Provider, ProviderError
+from .graph import GraphProvider
 
 
 class MockProvider(Provider):
@@ -37,6 +38,7 @@ class MockProvider(Provider):
             )
             for e in self._raw_employees
         ]
+        self._teams_notifier = GraphProvider(cfg) if cfg.mock_teams else None
 
     def list_employees(self) -> list[Employee]:
         return list(self._employees)
@@ -76,6 +78,10 @@ class MockProvider(Provider):
         return [b for b in blocks if b.start < end and b.end > start]
 
     def notify(self, employee: Employee, subject: str, html: str, text: str) -> NotificationResult:
+        if self._teams_notifier:
+            result = self._teams_notifier.notify_teams_by_email(employee, html)
+            if result is not None:
+                return result
         with self._lock:
             self.inbox.insert(
                 0,
@@ -104,4 +110,17 @@ class MockProvider(Provider):
         return event_id
 
     def status(self) -> dict:
-        return {"provider": self.name, "ready": True, "employees": len(self._employees)}
+        status = {"provider": self.name, "ready": True, "employees": len(self._employees)}
+        if self._teams_notifier:
+            status["teams"] = self._teams_notifier.status()
+        return status
+
+    def start_device_login(self) -> dict:
+        if self._teams_notifier is None:
+            raise ProviderError("SR_MOCK_TEAMS ist nicht aktiviert")
+        return self._teams_notifier.start_device_login()
+
+    def logout(self) -> None:
+        if self._teams_notifier is None:
+            raise ProviderError("SR_MOCK_TEAMS ist nicht aktiviert")
+        self._teams_notifier.logout()
