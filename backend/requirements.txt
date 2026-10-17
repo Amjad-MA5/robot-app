@@ -6,3 +6,4 @@ rapidfuzz>=3.6
 python-dotenv>=1.0
 segno>=1.6
 tzdata>=2024.1; platform_system == "Windows"
+Pillow>=10.1
