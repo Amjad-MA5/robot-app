@@ -72,7 +72,7 @@ object RobotController {
 
     fun connect(context: Context) {
         if (!isCoreServiceInstalled(context)) {
-            Log.i(TAG, "CoreService nicht installiert; RobotAPI bleibt deaktiviert")
+            Log.i(TAG, "CoreService is not installed; RobotAPI remains disabled")
             return
         }
         if (_connected.value || connecting) return
@@ -146,8 +146,8 @@ object RobotController {
      * abgebrochen, wird die Navigation gestoppt.
      */
     suspend fun navigateTo(place: String, speed: Float, onEvent: (NavEvent) -> Unit = {}): NavResult {
-        if (!_connected.value) return NavResult.Failed(-1000, "RobotAPI nicht verbunden")
-        if (_suspended.value) return NavResult.Failed(-1001, "Roboter ist gerade vom System blockiert")
+        if (!_connected.value) return NavResult.Failed(-1000, "RobotAPI is not connected")
+        if (_suspended.value) return NavResult.Failed(-1001, "The robot is currently blocked by the system")
         val linear = speed.toDouble().coerceIn(0.1, 0.85)
         // Empfohlenes Verhältnis laut Doku: angular = 0.4 + (linear − 0.1) / 3 × 4
         val angular = (0.4 + (linear - 0.1) / 3.0 * 4.0).coerceIn(0.4, 1.4)
@@ -182,7 +182,7 @@ object RobotController {
                         Definition.STATUS_NAVI_MULTI_ROBOT_WAITING -> onEvent(NavEvent.MULTI_ROBOT_WAIT)
                         Definition.STATUS_NAVI_OUT_MAP, Definition.STATUS_NAVI_GLOBAL_PATH_FAILED -> {
                             runCatching { RobotApi.getInstance().stopNavigation(id) }
-                            if (cont.isActive) cont.resume(NavResult.Failed(status, "Ziel nicht erreichbar"))
+                            if (cont.isActive) cont.resume(NavResult.Failed(status, "Destination is unreachable"))
                         }
                     }
                 }
@@ -212,12 +212,12 @@ object RobotController {
             .getOrDefault(false)
 
     private fun describeError(code: Int, fallback: String?): String = when (code) {
-        Definition.ERROR_NOT_ESTIMATE -> "Roboter ist nicht lokalisiert"
-        Definition.ERROR_DESTINATION_NOT_EXIST -> "Zielpunkt existiert nicht auf der Karte"
-        Definition.ERROR_DESTINATION_CAN_NOT_ARRAIVE -> "Ziel nicht erreichbar (Hindernis)"
-        Definition.ACTION_RESPONSE_ALREADY_RUN -> "Es läuft bereits eine Navigation"
-        Definition.ACTION_RESPONSE_REQUEST_RES_ERROR -> "Fahrwerk wird gerade von etwas anderem genutzt"
-        Definition.ERROR_MULTI_ROBOT_WAITING_TIMEOUT -> "Wartezeit wegen anderem Roboter überschritten"
-        else -> fallback?.takeIf { it.isNotBlank() } ?: "Fehler $code"
+        Definition.ERROR_NOT_ESTIMATE -> "The robot is not localized"
+        Definition.ERROR_DESTINATION_NOT_EXIST -> "The destination does not exist on the map"
+        Definition.ERROR_DESTINATION_CAN_NOT_ARRAIVE -> "The destination is unreachable (obstacle)"
+        Definition.ACTION_RESPONSE_ALREADY_RUN -> "Navigation is already in progress"
+        Definition.ACTION_RESPONSE_REQUEST_RES_ERROR -> "The drive system is currently in use"
+        Definition.ERROR_MULTI_ROBOT_WAITING_TIMEOUT -> "Timed out waiting for another robot"
+        else -> fallback?.takeIf { it.isNotBlank() } ?: "Error $code"
     }
 }

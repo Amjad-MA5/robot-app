@@ -23,9 +23,9 @@ object AppUpdater {
         val info = try {
             backend.latestApp()
         } catch (e: Exception) {
-            return Result.Failed("Backend nicht erreichbar: ${e.message}")
+            return Result.Failed("Backend is unavailable: ${e.message}")
         }
-        if (!info.available) return Result.Failed("Auf dem Backend liegt keine APK")
+        if (!info.available) return Result.Failed("No APK is available on the backend")
         if (info.versionCode <= BuildConfig.VERSION_CODE) return Result.UpToDate(BuildConfig.VERSION_NAME)
 
         val dir = context.getExternalFilesDir("updates") ?: File(context.cacheDir, "updates")
@@ -38,7 +38,7 @@ object AppUpdater {
         apk.setReadable(true, false)
 
         if (RobotController.installApk(apk.absolutePath)) {
-            return Result.Started("RobotOS installiert Version ${info.versionName} – die App startet danach neu.")
+            return             Result.Started("RobotOS installed version ${info.versionName}; the app will restart.")
         }
         return try {
             val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", apk)
@@ -47,10 +47,10 @@ object AppUpdater {
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(intent)
-            Result.Started("Android-Installer geöffnet (Version ${info.versionName}).")
+            Result.Started("Opened the Android installer (version ${info.versionName}).")
         } catch (e: Exception) {
-            Log.e("AppUpdater", "Installer konnte nicht gestartet werden", e)
-            Result.Failed("Installation nicht möglich: ${e.message}")
+            Log.e("AppUpdater", "Could not start the installer", e)
+            Result.Failed("Installation failed: ${e.message}")
         }
     }
 }

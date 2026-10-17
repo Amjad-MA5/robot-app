@@ -17,7 +17,7 @@ data class AppSettings(
     /** Name des Kartenpunkts am Empfang, zu dem der Roboter zurückkehrt */
     val receptionPoint: String = "Reception Point",
     /** "de" oder "en" */
-    val language: String = "de",
+    val language: String = "en",
     /** Name, mit dem sich der Roboter vorstellt */
     val robotName: String = "Nova",
     /** Wird überschrieben, sobald das Backend seinen Firmennamen liefert */

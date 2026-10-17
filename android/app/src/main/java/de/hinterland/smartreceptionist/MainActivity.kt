@@ -93,7 +93,7 @@ class MainActivity : ComponentActivity() {
         try {
             // Genau ein PageAgent pro Seite. Wir verarbeiten Spracherkennung selbst (Ablaufsteuerung).
             pageAgent = PageAgent(this)
-                .setObjective("Besucher am Empfang anmelden und Fragen zum Ablauf kurz beantworten.")
+                .setObjective("Check visitors in at reception and briefly answer questions about the process.")
                 .setOnTranscribeListener(object : OnTranscribeListener {
                     override fun onASRResult(transcription: Transcription): Boolean {
                         vm.onAsr(transcription.text, transcription.final)
@@ -109,7 +109,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }) as PageAgent
         } catch (t: Throwable) {
-            Log.e("MainActivity", "PageAgent konnte nicht erstellt werden (kein AgentOS?)", t)
+            Log.e("MainActivity", "Could not create PageAgent (is AgentOS installed?)", t)
         }
     }
 
