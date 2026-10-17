@@ -47,6 +47,20 @@ object RuleNlu {
         "paket|lieferung|zusteller|päckchen|\\bliefere\\b|sendung|\\bpost für|" +
             "package|parcel|delivery|courier|deliver(ing)? (a|some|something)"
     )
+    private val CARRIERS = listOf(
+        "DHL" to "dhl", "UPS" to "ups|u p s", "DPD" to "dpd", "Hermes" to "hermes", "FedEx" to "fedex|fed ex",
+        "GLS" to "gls", "Amazon" to "amazon", "Deutsche Post" to "deutsche post",
+    )
+
+    /** Zustelldienst aus einer Antwort: bekannte Anbieter werden vereinheitlicht, sonst der bereinigte Text. */
+    fun carrierFromAnswer(text: String): String? {
+        val t = norm(text)
+        CARRIERS.firstOrNull { (_, pattern) -> Regex("\\b($pattern)\\b").containsMatchIn(t) }?.let { return it.first }
+        val cleaned = text.trim().replace(Regex("^(ich (komme|bin) )?(von|bei|from|i'm from|i am from|the)\\s+", RegexOption.IGNORE_CASE), "")
+            .trim().trimEnd('.', '!', '?')
+        return cleaned.takeIf { it.length in 2..40 }
+    }
+
     private val BOOK = Regex(
         "termin (vereinbaren|ausmachen|machen|buchen|bekommen|reservieren)|\\bneuen termin|" +
             "\\beinen termin (bitte|möchte|hätte|haben möchte|bekommen)|termin haben möchte|" +

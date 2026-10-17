@@ -184,6 +184,7 @@ fun AdminScreen(initial: AppSettings, onSave: (AppSettings) -> Unit, onClose: ()
         Section("Conversation")
         ToggleRow("Greet automatically when someone is in front", s.autoGreet) { s = s.copy(autoGreet = it) }
         ToggleRow("Use AgentOS language model for understanding", s.useLlm) { s = s.copy(useLlm = it) }
+        ToggleRow("Take a photo of delivered packages (uses the device camera app)", s.deliveryPhoto) { s = s.copy(deliveryPhoto = it) }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Language:", color = Palette.Text, fontSize = 13.sp)
             FilterChip(selected = s.language == "de", onClick = { s = s.copy(language = "de") }, label = { Text("German") })

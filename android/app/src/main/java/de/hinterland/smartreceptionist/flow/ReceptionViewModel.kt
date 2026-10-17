@@ -1,7 +1,9 @@
 package de.hinterland.smartreceptionist.flow
 
 import android.app.Application
+import android.graphics.BitmapFactory
 import android.os.SystemClock
+import android.util.Base64
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -26,6 +28,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -33,6 +36,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.io.File
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
@@ -59,6 +63,11 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
     private val understander = Understander { settings.useLlm }
 
     private val inputs = Channel<UserInput>(Channel.UNLIMITED)
+
+    /** Bitte an die Activity, die Kamera-App zu öffnen; Ergebnis kommt über [onPhotoResult]. */
+    val photoRequest = MutableSharedFlow<File>(extraBufferCapacity = 1)
+    private val photoResult = Channel<Boolean>(Channel.CONFLATED)
+    @Volatile private var photoInProgress = false
     private var conversationJob: Job? = null
     private var detectionJob: Job? = null
     private var healthJob: Job? = null
@@ -95,6 +104,8 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun onBackground() {
+        // Die Kamera-App für das Paketfoto schiebt uns kurz in den Hintergrund – Gespräch nicht abbrechen.
+        if (photoInProgress) return
         inForeground = false
         cancelConversation()
         detectionJob?.cancel()
@@ -152,6 +163,8 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
     fun onScreenTap() {
         if (!adminOpen && _ui.value.phase == Phase.IDLE && conversationJob?.isActive != true) startConversation(null)
     }
+
+    fun onPhotoResult(success: Boolean) { photoResult.trySend(success) }
 
     fun choose(id: String) = inputs.trySend(UserInput.Option(id))
     fun submitText(text: String) { if (text.isNotBlank()) inputs.trySend(UserInput.Typed(text.trim())) }
@@ -641,9 +654,15 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
     // ============================================== Paketlieferung
     private suspend fun scenarioDelivery(employee: Employee) {
         val l = lines
+        val carrier = askCarrier() ?: return
+        val signature = askYesNo(l.askSignature, l.optSignatureYes, l.optSignatureNo) ?: return
+        var photo: String? = null
+        if (settings.deliveryPhoto && askYesNo(l.askPhoto, l.optPhotoYes, l.optPhotoNo, hint = l.photoHint) == true) {
+            photo = capturePhoto()
+        }
         setScreen(title = employee.name, subtitle = l.thinking, mood = Mood.THINKING)
         val result = try {
-            backend.delivery(employee.id)
+            backend.delivery(employee.id, carrier, signature, photo)
         } catch (e: Exception) {
             Log.w(TAG, "Lieferung melden fehlgeschlagen", e)
             say(l.backendDown)
@@ -656,6 +675,67 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         }
         setMood(Mood.JOY)
         say(if (result.waitForRecipient) l.deliveryWaitForRecipient(employee.name) else l.deliveryLeaveAtDesk(employee.name))
+    }
+
+    /** Zustelldienst per Touch, Sprache oder Tastatur. Liefert null bei Abbruch; "" wenn unbekannt. */
+    private suspend fun askCarrier(): String? {
+        val l = lines
+        val options = listOf("DHL", "UPS", "DPD", "Hermes", "FedEx").map { UiOption("$OPT_CARRIER$it", it) } +
+            UiOption(OPT_CARRIER_UNKNOWN, l.optCarrierUnknown)
+        val input = ask(l.askCarrier, subtitle = l.typeHere, options = options, input = TextInput(InputKind.NAME, l.carrierHint))
+            ?: return ""
+        return when (input) {
+            is UserInput.Option -> if (input.id.startsWith(OPT_CARRIER)) input.id.removePrefix(OPT_CARRIER) else ""
+            is UserInput.Typed -> RuleNlu.carrierFromAnswer(input.text).orEmpty()
+            is UserInput.Voice -> {
+                if (RuleNlu.wantsCancel(input.text)) { say(l.goodbye); null } else RuleNlu.carrierFromAnswer(input.text).orEmpty()
+            }
+            is UserInput.Cancel -> null
+            else -> ""
+        }
+    }
+
+    /** Ja/Nein-Frage; null bei Abbruch oder ausbleibender Antwort. */
+    private suspend fun askYesNo(question: String, yesLabel: String, noLabel: String, hint: String = ""): Boolean? {
+        val options = listOf(UiOption(OPT_YES, yesLabel, true), UiOption(OPT_NO, noLabel))
+        // Der Hinweis wird mitgesprochen, steht auf dem Bildschirm aber als Untertitel unter der Frage.
+        val input = ask(listOf(question, hint).filter { it.isNotBlank() }.joinToString(" "), title = question, subtitle = hint, options = options)
+            ?: return null
+        return when (input) {
+            is UserInput.Option -> input.id == OPT_YES
+            is UserInput.Voice, is UserInput.Typed -> interpret(input, Step.YES_NO, question)?.answer ?: false
+            else -> null
+        }
+    }
+
+    /** Öffnet die Kamera-App und liefert das Foto verkleinert als Base64-JPEG (null bei Abbruch/Fehler). */
+    private suspend fun capturePhoto(): String? {
+        val file = File(getApplication<Application>().cacheDir, "photos/package.jpg")
+        file.parentFile?.mkdirs()
+        file.delete()
+        photoInProgress = true
+        try {
+            photoResult.tryReceive()
+            photoRequest.emit(file)
+            val ok = withTimeoutOrNull(120_000) { photoResult.receive() } ?: false
+            if (!ok || !file.exists()) return null
+            return withContext(Dispatchers.Default) { encodePhoto(file) }
+        } finally {
+            photoInProgress = false
+        }
+    }
+
+    private fun encodePhoto(file: File): String? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.path, bounds)
+        var sample = 1
+        while (bounds.outWidth / sample > 1280) sample *= 2
+        val bitmap = BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample }) ?: return null
+        val out = java.io.ByteArrayOutputStream()
+        bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out)
+        bitmap.recycle()
+        file.delete()
+        return Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
     }
 
     // ============================================== Szenario 2: ohne Termin
@@ -875,6 +955,8 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         const val OPT_WALK_IN = "intent:walk_in"
         const val OPT_BOOK = "intent:book"
         const val OPT_DELIVERY = "intent:delivery"
+        const val OPT_CARRIER = "carrier:"
+        const val OPT_CARRIER_UNKNOWN = "carrier_unknown"
         const val OPT_YES = "yes"
         const val OPT_NO = "no"
         const val OPT_MORE = "slots:more"

@@ -55,9 +55,14 @@ class Settings:
     # "mock" = alles simuliert, "graph" = echtes Microsoft 365 über MS Graph
     mode: str = field(default_factory=lambda: _env("SR_MODE", "mock").lower())
     mock_teams: bool = field(default_factory=lambda: _env_bool("SR_MOCK_TEAMS"))
+    # Sprache der Benachrichtigungen an Mitarbeiter: en | de
+    language: str = field(default_factory=lambda: _env("SR_LANGUAGE", "en").lower())
     company_name: str = field(default_factory=lambda: _env("SR_COMPANY_NAME", "Hinterland Hack"))
     # Was mit Paketen passiert: leave_at_desk | wait_for_recipient
     delivery_handling: str = field(default_factory=lambda: _env("SR_DELIVERY_HANDLING", "leave_at_desk"))
+    # Erinnerung, wenn ein Paket nach so vielen Minuten nicht abgeholt wurde (0 = aus)
+    package_reminder_min: int = field(default_factory=lambda: _env_int("SR_PACKAGE_REMINDER_MIN", 120))
+    package_photo_dir: Path = field(default_factory=lambda: _resolve(_env("SR_PACKAGE_PHOTO_DIR", "data/package_photos")))
 
     timezone: ZoneInfo = field(default_factory=lambda: ZoneInfo(_env("SR_TIMEZONE", "Europe/Berlin")))
     work_start: time = field(default_factory=lambda: _parse_time(_env("SR_WORK_START", "09:00")))

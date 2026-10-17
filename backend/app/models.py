@@ -63,6 +63,10 @@ class DeliveryRequest(BaseModel):
     employee_id: str
     carrier: str = ""
     note: str = ""
+    # True = Bote wartet, Empfänger kommt zum Empfang; False = am Empfang ablegen; None = Servereinstellung
+    signature_required: Optional[bool] = None
+    # Optional: JPEG des Pakets, Base64-kodiert
+    photo_base64: str = ""
 
 
 class DeliveryResponse(BaseModel):
@@ -70,6 +74,7 @@ class DeliveryResponse(BaseModel):
     notification: NotificationResult
     # leave_at_desk | wait_for_recipient – steuert, was der Roboter dem Boten sagt
     handling: str
+    package_id: str = ""
 
 
 class WalkInRequest(BaseModel):

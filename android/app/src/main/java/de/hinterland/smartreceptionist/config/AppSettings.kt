@@ -34,6 +34,8 @@ data class AppSettings(
     val waitingRoomPauseSec: Int = 4,
     /** Sprachverständnis über das AgentOS-Sprachmodell (sonst nur Regeln) */
     val useLlm: Boolean = true,
+    /** Bei Paketlieferungen ein Foto des Pakets aufnehmen (Kamera-App des Geräts) */
+    val deliveryPhoto: Boolean = false,
     /** PIN für den Admin-Bereich */
     val adminPin: String = "1234",
 ) {
@@ -59,6 +61,7 @@ data class AppSettings(
                 returnSpeed = p.getFloat("returnSpeed", d.returnSpeed),
                 waitingRoomPauseSec = p.getInt("waitingRoomPauseSec", d.waitingRoomPauseSec),
                 useLlm = p.getBoolean("useLlm", d.useLlm),
+                deliveryPhoto = p.getBoolean("deliveryPhoto", d.deliveryPhoto),
                 adminPin = p.getString("adminPin", d.adminPin) ?: d.adminPin,
             )
         }
@@ -79,6 +82,7 @@ data class AppSettings(
                 .putFloat("returnSpeed", s.returnSpeed)
                 .putInt("waitingRoomPauseSec", s.waitingRoomPauseSec)
                 .putBoolean("useLlm", s.useLlm)
+                .putBoolean("deliveryPhoto", s.deliveryPhoto)
                 .putString("adminPin", s.adminPin.trim())
                 .apply()
         }

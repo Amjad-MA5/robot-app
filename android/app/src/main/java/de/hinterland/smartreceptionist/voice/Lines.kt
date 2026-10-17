@@ -36,6 +36,16 @@ interface Lines {
     val askEmployeeWalkIn: String
     val askEmployeeBook: String
     val askEmployeeDelivery: String
+    val askCarrier: String
+    val carrierHint: String
+    val optCarrierUnknown: String
+    val askSignature: String
+    val optSignatureYes: String
+    val optSignatureNo: String
+    val askPhoto: String
+    val photoHint: String
+    val optPhotoYes: String
+    val optPhotoNo: String
     val employeeHint: String
     fun employeeNotFound(query: String): String
     fun confirmEmployee(name: String): String
@@ -134,6 +144,16 @@ object GermanLines : Lines {
     override val askEmployeeWalkIn = "Mit wem möchten Sie sprechen?"
     override val askEmployeeBook = "Bei wem möchten Sie einen Termin vereinbaren?"
     override val askEmployeeDelivery = "Für wen ist das Paket?"
+    override val askCarrier = "Von welchem Zustelldienst kommen Sie?"
+    override val carrierHint = "Zustelldienst"
+    override val optCarrierUnknown = "Weiß ich nicht"
+    override val askSignature = "Muss der Empfänger das Paket persönlich annehmen?"
+    override val optSignatureYes = "Ja, Unterschrift nötig"
+    override val optSignatureNo = "Nein, am Empfang ablegen"
+    override val askPhoto = "Darf ich ein Foto vom Paket machen?"
+    override val photoHint = "Bitte halten Sie es so, dass die Adresse gut lesbar ist."
+    override val optPhotoYes = "Ja, Foto machen"
+    override val optPhotoNo = "Nein, ohne Foto"
     override val employeeHint = "Name des Ansprechpartners"
     override fun employeeNotFound(query: String) =
         "Ich habe leider niemanden mit dem Namen $query gefunden. Bitte wählen Sie auf dem Bildschirm aus oder nennen Sie den Namen noch einmal."
@@ -255,6 +275,16 @@ object EnglishLines : Lines {
     override val askEmployeeWalkIn = "Who would you like to talk to?"
     override val askEmployeeBook = "Who would you like to make an appointment with?"
     override val askEmployeeDelivery = "Who is the package for?"
+    override val askCarrier = "Which delivery company are you from?"
+    override val carrierHint = "Delivery company"
+    override val optCarrierUnknown = "Not sure"
+    override val askSignature = "Does the recipient have to sign for the package in person?"
+    override val optSignatureYes = "Yes, signature needed"
+    override val optSignatureNo = "No, leave it at the desk"
+    override val askPhoto = "May I take a photo of the package?"
+    override val photoHint = "Please hold it so the address label is clearly visible."
+    override val optPhotoYes = "Yes, take a photo"
+    override val optPhotoNo = "No photo"
     override val employeeHint = "Name of your contact"
     override fun employeeNotFound(query: String) =
         "Sorry, I couldn't find anyone called $query. Please pick from the screen or say the name again."

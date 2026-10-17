@@ -81,4 +81,13 @@ class RuleNluTest {
         assertEquals(Intent.DELIVERY, RuleNlu.intent("I'm delivering a package for Lukas"))
         assertEquals(Intent.APPOINTMENT, RuleNlu.intent("Ich habe einen Termin bei Frau Schmidt"))
     }
+
+    @Test
+    fun recognizesCarrier() {
+        assertEquals("DHL", RuleNlu.carrierFromAnswer("Ich komme von DHL"))
+        assertEquals("UPS", RuleNlu.carrierFromAnswer("U.P.S."))
+        assertEquals("FedEx", RuleNlu.carrierFromAnswer("from Fedex Express"))
+        assertEquals("Trans-o-flex", RuleNlu.carrierFromAnswer("von Trans-o-flex"))
+        assertNull(RuleNlu.carrierFromAnswer(""))
+    }
 }

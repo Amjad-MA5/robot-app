@@ -5,17 +5,21 @@ Start (im backend-Ordner):
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections import deque
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 
 import segno
+from html import escape
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel
 
 from . import clock, directory, messages, scheduling
+from .packages import PackageLog
 from .config import BACKEND_DIR, Settings, settings
 from .models import (
     AppointmentRequest,
@@ -59,7 +63,45 @@ def build_provider(cfg: Settings) -> Provider:
 provider: Provider = build_provider(settings)
 visit_log: deque[dict] = deque(maxlen=200)
 
-app = FastAPI(title="Smart Receptionist Backend", version="1.0.0")
+package_log = PackageLog(settings.package_photo_dir)
+
+
+def send_due_reminders(base_url: str = "") -> int:
+    """Erinnert Empfänger an Pakete, die nach SR_PACKAGE_REMINDER_MIN noch nicht abgeholt wurden."""
+    sent = 0
+    for pkg in package_log.due_reminders(now_local(), settings.package_reminder_min):
+        employee = provider.get_employee(pkg.employee_id)
+        if employee is None:
+            pkg.reminded = True
+            continue
+        photo_url = f"{base_url}/packages/{pkg.id}/photo" if pkg.has_photo and base_url else ""
+        collect_url = f"{base_url}/packages/{pkg.id}" if base_url else ""
+        subject, html, text = messages.delivery_reminder(pkg.carrier, pkg.created, pkg.handling, photo_url, collect_url, settings.language)
+        result = do_notify(employee, subject, html, text)
+        pkg.reminded = result.sent or pkg.reminded
+        sent += int(result.sent)
+    return sent
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    async def reminder_loop() -> None:
+        while True:
+            await asyncio.sleep(60)
+            try:
+                await asyncio.to_thread(send_due_reminders, public_base_url[0])
+            except Exception:  # noqa: BLE001 - Erinnerungen dürfen den Server nie stoppen
+                log.exception("Paket-Erinnerung fehlgeschlagen")
+
+    task = asyncio.create_task(reminder_loop())
+    yield
+    task.cancel()
+
+
+# Letzte bekannte Adresse, unter der das Backend erreichbar war (für Links in Erinnerungen)
+public_base_url: list[str] = [""]
+
+app = FastAPI(title="Smart Receptionist Backend", version="1.0.0", lifespan=lifespan)
 
 
 # ----------------------------------------------------------------- Hilfsfunktionen
@@ -240,7 +282,7 @@ def visit_arrival(req: ArrivalRequest) -> ArrivalResponse:
     except ProviderError as exc:
         # Kalender ist nur Zusatzinfo – die Benachrichtigung soll trotzdem rausgehen.
         log.info("Kalender für Ankunft nicht lesbar: %s", exc)
-    subject, html, text = messages.arrival(visitor, now, appointment, req.purpose)
+    subject, html, text = messages.arrival(visitor, now, appointment, req.purpose, settings.language)
     result = do_notify(employee, subject, html, text)
     log_visit("Termin", visitor, employee, "benachrichtigt" if result.sent else f"Fehler: {result.detail}")
     return ArrivalResponse(employee=employee, notification=result, appointment=appointment)
@@ -259,7 +301,7 @@ def visit_walk_in(req: WalkInRequest) -> WalkInResponse:
     available_today = free_now or bool(today_slots)
     if available_today:
         first_free = today_slots[0].start if today_slots else None
-        subject, html, text = messages.walk_in(visitor, now, free_now, first_free, req.purpose)
+        subject, html, text = messages.walk_in(visitor, now, free_now, first_free, req.purpose, settings.language)
         result = do_notify(employee, subject, html, text)
         log_visit("Ohne Termin", visitor, employee, "benachrichtigt" if result.sent else f"Fehler: {result.detail}")
         return WalkInResponse(
@@ -282,14 +324,71 @@ def visit_walk_in(req: WalkInRequest) -> WalkInResponse:
 
 
 @app.post("/api/visits/delivery", response_model=DeliveryResponse, dependencies=[Depends(require_key)])
-def visit_delivery(req: DeliveryRequest) -> DeliveryResponse:
+def visit_delivery(req: DeliveryRequest, request: Request) -> DeliveryResponse:
     """Paketbote am Empfang → Empfänger benachrichtigen, Roboter sagt dem Boten, was zu tun ist."""
     employee = get_employee_or_404(req.employee_id)
     carrier = " ".join(req.carrier.split())[:60]
-    subject, html, text = messages.delivery(carrier, now_local(), req.note, settings.delivery_handling)
+    if req.signature_required is None:
+        handling = settings.delivery_handling
+    else:
+        handling = "wait_for_recipient" if req.signature_required else "leave_at_desk"
+    base = str(request.base_url).rstrip("/")
+    public_base_url[0] = base
+    pkg = package_log.add(now_local(), employee.id, employee.name, carrier, handling)
+    if req.photo_base64 and not package_log.save_photo(pkg, req.photo_base64):
+        log.info("Paketfoto verworfen (kein gültiges JPEG)")
+    photo_url = f"{base}/packages/{pkg.id}/photo" if pkg.has_photo else ""
+    subject, html, text = messages.delivery(carrier, now_local(), req.note, handling, photo_url, f"{base}/packages/{pkg.id}", settings.language)
     result = do_notify(employee, subject, html, text)
     log_visit("Lieferung", carrier or "Zusteller", employee, "benachrichtigt" if result.sent else f"Fehler: {result.detail}")
-    return DeliveryResponse(employee=employee, notification=result, handling=settings.delivery_handling)
+    return DeliveryResponse(employee=employee, notification=result, handling=handling, package_id=pkg.id)
+
+
+@app.get("/api/packages", dependencies=[Depends(require_key)])
+def list_packages() -> list[dict]:
+    return [p.as_dict() for p in package_log.list()]
+
+
+@app.post("/api/packages/{package_id}/collected", dependencies=[Depends(require_key)])
+def package_collected(package_id: str) -> dict:
+    pkg = package_log.mark_collected(package_id)
+    if pkg is None:
+        raise HTTPException(status_code=404, detail="Paket nicht gefunden")
+    return pkg.as_dict()
+
+
+# Öffentliche Links aus der Benachrichtigung (die ID ist nicht erratbar)
+@app.get("/packages/{package_id}/photo", include_in_schema=False)
+def package_photo(package_id: str) -> FileResponse:
+    pkg = package_log.get(package_id)
+    if pkg is None or not pkg.has_photo:
+        raise HTTPException(status_code=404, detail="Kein Foto vorhanden")
+    return FileResponse(package_log.photo_path(package_id), media_type="image/jpeg")
+
+
+@app.get("/packages/{package_id}", response_class=HTMLResponse, include_in_schema=False)
+def package_page(package_id: str) -> HTMLResponse:
+    pkg = package_log.get(package_id)
+    if pkg is None:
+        raise HTTPException(status_code=404, detail="Paket nicht gefunden")
+    lang = settings.language
+    if pkg.status == "collected":
+        body = f"<p>✅ {escape(messages.tr(lang, 'page_collected'))}</p>"
+    else:
+        who = pkg.carrier or messages.tr(lang, "unknown_carrier")
+        body = (
+            f"<p>📦 {escape(messages.tr(lang, 'page_package', c=who, e=pkg.employee_name))}</p>"
+            f'<form method="post" action="/packages/{pkg.id}/collect"><button style="font-size:1.2em;padding:.6em 1em">'
+            f"{escape(messages.tr(lang, 'page_button'))}</button></form>"
+        )
+    return HTMLResponse(f"<!doctype html><meta name=viewport content='width=device-width'><body style='font-family:sans-serif;padding:1.5em'>{body}")
+
+
+@app.post("/packages/{package_id}/collect", response_class=HTMLResponse, include_in_schema=False)
+def package_collect_form(package_id: str) -> HTMLResponse:
+    if package_log.mark_collected(package_id) is None:
+        raise HTTPException(status_code=404, detail="Paket nicht gefunden")
+    return HTMLResponse("<!doctype html><meta name=viewport content='width=device-width'><body style='font-family:sans-serif;padding:1.5em'><p>✅ " + escape(messages.tr(settings.language, "page_thanks")) + "</p>")
 
 
 @app.post("/api/appointments", response_model=AppointmentResponse, dependencies=[Depends(require_key)])
@@ -312,12 +411,12 @@ def create_appointment(req: AppointmentRequest) -> AppointmentResponse:
         b.status.lower() in scheduling.BLOCKING_STATUS and b.start < end and b.end > start for b in busy
     ):
         raise HTTPException(status_code=409, detail="Der Termin ist inzwischen nicht mehr frei")
-    event_subject, event_html = messages.event_body(visitor, req.purpose, req.visitor_email)
+    event_subject, event_html = messages.event_body(visitor, req.purpose, req.visitor_email, settings.language)
     try:
         event_id = provider.create_appointment(employee, start, end, event_subject, event_html)
     except ProviderError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    subject, html, text = messages.appointment_booked(visitor, start, end, req.purpose, req.visitor_email)
+    subject, html, text = messages.appointment_booked(visitor, start, end, req.purpose, req.visitor_email, settings.language)
     result = do_notify(employee, subject, html, text)
     log_visit("Neuer Termin", visitor, employee, f"{start:%d.%m. %H:%M} eingetragen")
     return AppointmentResponse(
@@ -343,8 +442,8 @@ class TestNotifyRequest(BaseModel):
 @app.post("/api/notify/test", response_model=NotificationResult, dependencies=[Depends(require_key)])
 def notify_test(req: TestNotifyRequest) -> NotificationResult:
     employee = get_employee_or_404(req.employee_id)
-    text = "Testnachricht vom Smart Receptionist – die Verbindung funktioniert."
-    return do_notify(employee, "Smart Receptionist: Test", f"<p>✅ {text}</p>", text)
+    text = messages.tr(settings.language, "test_text")
+    return do_notify(employee, messages.tr(settings.language, "test_subject"), f"<p>✅ {text}</p>", text)
 
 
 @app.post("/api/auth/device-login", dependencies=[Depends(require_key)])

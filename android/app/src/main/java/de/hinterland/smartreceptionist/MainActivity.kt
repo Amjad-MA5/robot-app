@@ -9,6 +9,10 @@ import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import androidx.activity.viewModels
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +41,11 @@ class MainActivity : ComponentActivity() {
 
     private val vm: ReceptionViewModel by viewModels()
     private var pageAgent: PageAgent? = null
+    private var photoFile: java.io.File? = null
+
+    private val takePhoto = registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        vm.onPhotoResult(ok)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,6 +56,20 @@ class MainActivity : ComponentActivity() {
         if (RobotController.isCoreServiceInstalled(this)) {
             RobotController.connect(this)
             setupPageAgent()
+        }
+
+        // Paketfoto: ViewModel bittet um die Kamera-App, Ergebnis geht zurück an den Ablauf
+        lifecycleScope.launch {
+            vm.photoRequest.collect { file ->
+                photoFile = file
+                val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.files", file)
+                try {
+                    takePhoto.launch(uri)
+                } catch (e: ActivityNotFoundException) {
+                    Log.w("MainActivity", "Keine Kamera-App gefunden", e)
+                    vm.onPhotoResult(false)
+                }
+            }
         }
 
         setContent {

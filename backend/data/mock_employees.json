@@ -163,6 +163,22 @@
         {"rel_start_min": 45, "duration_min": 30, "subject": "Press Appointment"},
         {"day": 3, "all_day": true, "subject": "Trade Fair"}
       ]
+    },
+    {
+      "id": "ashiq.lathief",
+      "name": "Ashiq Lathief",
+      "email": "ashiq.lathief@gmail.com",
+      "department": "Engineering",
+      "job_title": "Software Developer",
+      "calendar": []
+    },
+    {
+      "id": "ashiq.ali",
+      "name": "Ashiq Ali",
+      "email": "ashiq@mail.uni-paderborn.de",
+      "department": "Research",
+      "job_title": "Research Assistant",
+      "calendar": []
     }
   ]
 }

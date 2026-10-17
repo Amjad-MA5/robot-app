@@ -28,6 +28,14 @@ def frozen_time():
     clock.freeze(None)
 
 
+@pytest.fixture(autouse=True)
+def fresh_package_log():
+    from app import main
+
+    main.package_log._items.clear()
+    yield
+
+
 @pytest.fixture()
 def client():
     return TestClient(app)
@@ -181,7 +189,7 @@ def test_delivery_notifies_recipient(client):
     assert body["notification"]["sent"] is True
     assert body["handling"] == "leave_at_desk"
     inbox = client.get("/api/mock/inbox", headers=HEADERS).json()
-    assert "Paket" in inbox[0]["subject"] and "DHL" in inbox[0]["subject"]
+    assert "Package" in inbox[0]["subject"] and "DHL" in inbox[0]["subject"]
 
 
 def test_delivery_unknown_employee_404(client):
@@ -199,7 +207,10 @@ def test_smtp_provider_sends_mail(monkeypatch):
         def __init__(self, host, port, timeout=0): sent.append(("connect", host, port))
         def __enter__(self): return self
         def __exit__(self, *a): return False
-        def starttls(self, context=None): pass
+        _ehlo_done = False
+        def ehlo(self): self._ehlo_done = True
+        def has_extn(self, name): return self._ehlo_done
+        def starttls(self, context=None): sent.append(("tls",))
         def login(self, user, password): sent.append(("login", user))
         def send_message(self, msg): sent.append(("mail", msg["To"], msg["Subject"]))
 
@@ -211,4 +222,62 @@ def test_smtp_provider_sends_mail(monkeypatch):
     employee = provider.get_employee("lukas.becker")
     result = provider.notify(employee, "Betreff", "<p>Hi</p>", "Hi")
     assert result.sent and result.channel == "email"
+    assert ("tls",) in sent and ("login", "me@gmail.com") in sent
     assert ("mail", "test@example.org", "Betreff") in sent
+
+
+def test_delivery_signature_and_package_log(client):
+    r = client.post(
+        "/api/visits/delivery",
+        headers=HEADERS,
+        json={"employee_id": "lukas.becker", "carrier": "DHL", "signature_required": True},
+    )
+    body = r.json()
+    assert body["handling"] == "wait_for_recipient"
+    pkgs = client.get("/api/packages", headers=HEADERS).json()
+    assert pkgs[0]["id"] == body["package_id"] and pkgs[0]["status"] == "waiting"
+    assert client.post(f"/api/packages/{body['package_id']}/collected", headers=HEADERS).json()["status"] == "collected"
+
+
+def test_delivery_photo_is_stored_and_linked(client, tmp_path, monkeypatch):
+    import base64
+    from app import main
+
+    monkeypatch.setattr(main.package_log, "photo_dir", tmp_path)
+    jpeg = base64.b64encode(b"\xff\xd8\xff\xe0fake-jpeg").decode()
+    r = client.post(
+        "/api/visits/delivery", headers=HEADERS,
+        json={"employee_id": "lukas.becker", "carrier": "UPS", "photo_base64": jpeg},
+    )
+    pid = r.json()["package_id"]
+    assert client.get(f"/packages/{pid}/photo").content.startswith(b"\xff\xd8")
+    assert "/photo" in client.get("/api/mock/inbox", headers=HEADERS).json()[0]["text"]
+    bad = client.post("/api/visits/delivery", headers=HEADERS,
+                      json={"employee_id": "lukas.becker", "photo_base64": base64.b64encode(b"not a jpeg").decode()})
+    assert client.get(f"/packages/{bad.json()['package_id']}/photo").status_code == 404
+
+
+def test_uncollected_package_gets_one_reminder(client):
+    from app import main
+
+    r = client.post("/api/visits/delivery", headers=HEADERS, json={"employee_id": "lukas.becker", "carrier": "DPD"})
+    pid = r.json()["package_id"]
+    assert main.send_due_reminders("http://x") == 0  # noch nicht fällig
+    clock.freeze(FIXED_NOW + timedelta(minutes=settings.package_reminder_min + 1))
+    assert main.send_due_reminders("http://x") == 1
+    assert main.send_due_reminders("http://x") == 0  # nur einmal
+    assert "Reminder" in client.get("/api/mock/inbox", headers=HEADERS).json()[0]["subject"]
+    main.package_log.mark_collected(pid)
+
+
+def test_notifications_can_be_german(client, monkeypatch):
+    monkeypatch.setattr(settings, "language", "de")
+    client.post("/api/visits/delivery", headers=HEADERS, json={"employee_id": "lukas.becker", "carrier": "DHL"})
+    inbox = client.get("/api/mock/inbox", headers=HEADERS).json()
+    assert inbox[0]["subject"].startswith("Paket für Sie")
+
+
+def test_arrival_message_is_english_by_default(client):
+    client.post("/api/visits/arrival", headers=HEADERS, json={"visitor_name": "Max", "employee_id": "lukas.becker"})
+    m = client.get("/api/mock/inbox", headers=HEADERS).json()[0]
+    assert m["subject"] == "Your visitor has arrived: Max" and "arrived at reception at" in m["text"]

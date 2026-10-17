@@ -88,8 +88,12 @@ class BackendClient(baseUrl: String, private val apiKey: String) {
         )
     }
 
-    suspend fun delivery(employeeId: String): DeliveryResult {
-        val body = JSONObject().put("employee_id", employeeId)
+    suspend fun delivery(employeeId: String, carrier: String, signatureRequired: Boolean, photoBase64: String?): DeliveryResult {
+        val body = JSONObject()
+            .put("employee_id", employeeId)
+            .put("carrier", carrier)
+            .put("signature_required", signatureRequired)
+        if (photoBase64 != null) body.put("photo_base64", photoBase64)
         val o = JSONObject(request("POST", "/api/visits/delivery", body))
         return DeliveryResult(
             notified = o.optJSONObject("notification")?.optBoolean("sent") ?: false,
