@@ -36,6 +36,16 @@ data class AppSettings(
     val useLlm: Boolean = true,
     /** PIN für den Admin-Bereich */
     val adminPin: String = "1234",
+    /** Besucherausweis mit Foto drucken, wenn ein Gast mit Termin ankommt */
+    val badgeEnabled: Boolean = true,
+    /** Kamera-Drehung in Grad (0/90/180/270), -1 = automatisch */
+    val cameraRotation: Int = -1,
+    /** "auto", "shared" (Videostrom des Roboters) oder "camera2" (Android-Kamera) */
+    val cameraSource: String = "auto",
+    /** Vorschau spiegeln, damit sich der Gast wie im Spiegel sieht */
+    val cameraMirror: Boolean = true,
+    /** Wo der Ausweis abgeholt wird, z. B. "am Drucker neben dem Empfang" (leer = Standardtext) */
+    val badgePickupHint: String = "",
 ) {
     val isGerman: Boolean get() = language != "en"
 
@@ -60,6 +70,11 @@ data class AppSettings(
                 waitingRoomPauseSec = p.getInt("waitingRoomPauseSec", d.waitingRoomPauseSec),
                 useLlm = p.getBoolean("useLlm", d.useLlm),
                 adminPin = p.getString("adminPin", d.adminPin) ?: d.adminPin,
+                badgeEnabled = p.getBoolean("badgeEnabled", d.badgeEnabled),
+                cameraRotation = p.getInt("cameraRotation", d.cameraRotation),
+                cameraSource = p.getString("cameraSource", d.cameraSource) ?: d.cameraSource,
+                cameraMirror = p.getBoolean("cameraMirror", d.cameraMirror),
+                badgePickupHint = p.getString("badgePickupHint", d.badgePickupHint) ?: d.badgePickupHint,
             )
         }
 
@@ -80,6 +95,11 @@ data class AppSettings(
                 .putInt("waitingRoomPauseSec", s.waitingRoomPauseSec)
                 .putBoolean("useLlm", s.useLlm)
                 .putString("adminPin", s.adminPin.trim())
+                .putBoolean("badgeEnabled", s.badgeEnabled)
+                .putInt("cameraRotation", s.cameraRotation)
+                .putString("cameraSource", s.cameraSource)
+                .putBoolean("cameraMirror", s.cameraMirror)
+                .putString("badgePickupHint", s.badgePickupHint.trim())
                 .apply()
         }
     }
