@@ -1,25 +1,25 @@
 {
-  "_hinweis": "Demo-Daten für SR_MODE=mock. 'rel_start_min' ist relativ zu JETZT (bei jeder Abfrage neu berechnet), 'day' ist relativ zu heute (0 = heute, 1 = morgen …), 'all_day' blockiert den ganzen Tag.",
+  "_note": "Demo data for SR_MODE=mock. 'rel_start_min' is relative to NOW (recalculated on every request), 'day' is relative to today (0 = today, 1 = tomorrow …), 'all_day' blocks the whole day.",
   "employees": [
     {
       "id": "anna.schmidt",
       "name": "Anna Schmidt",
       "email": "anna.schmidt@example.com",
-      "department": "Vertrieb",
-      "job_title": "Key Account Managerin",
-      "_szenario": "1 – hat genau jetzt einen Besuchertermin",
+      "department": "Sales",
+      "job_title": "Key Account Manager",
+      "_scenario": "1 – has a visitor appointment right now",
       "calendar": [
-        {"rel_start_min": -5, "duration_min": 60, "subject": "Besuchertermin Empfang"},
-        {"day": 1, "start": "09:00", "end": "12:00", "subject": "Vertriebsrunde"}
+        {"rel_start_min": -5, "duration_min": 60, "subject": "Visitor Appointment at Reception"},
+        {"day": 1, "start": "09:00", "end": "12:00", "subject": "Sales Meeting"}
       ]
     },
     {
       "id": "lukas.becker",
       "name": "Lukas Becker",
       "email": "lukas.becker@example.com",
-      "department": "Entwicklung",
-      "job_title": "Softwareentwickler",
-      "_szenario": "2 – heute frei, kann spontan sprechen",
+      "department": "Engineering",
+      "job_title": "Software Developer",
+      "_scenario": "2 – free today, can talk spontaneously",
       "calendar": [
         {"day": 1, "start": "13:00", "end": "15:00", "subject": "Sprint Review"}
       ]
@@ -28,11 +28,11 @@
       "id": "sophie.wagner",
       "name": "Sophie Wagner",
       "email": "sophie.wagner@example.com",
-      "department": "Personal",
-      "job_title": "HR Business Partnerin",
-      "_szenario": "3 – heute komplett belegt, Terminvorschlag an Folgetagen",
+      "department": "Human Resources",
+      "job_title": "HR Business Partner",
+      "_scenario": "3 – fully booked today, appointment suggestions on following days",
       "calendar": [
-        {"day": 0, "all_day": true, "subject": "Bewerbertag"},
+        {"day": 0, "all_day": true, "subject": "Recruiting Day"},
         {"day": 1, "start": "09:00", "end": "11:00", "subject": "Onboarding"},
         {"day": 1, "start": "14:00", "end": "16:30", "subject": "Workshop"}
       ]
@@ -41,23 +41,34 @@
       "id": "mehmet.yilmaz",
       "name": "Mehmet Yılmaz",
       "email": "mehmet.yilmaz@example.com",
-      "department": "Einkauf",
-      "job_title": "Leiter Einkauf",
+      "department": "Procurement",
+      "job_title": "Head of Procurement",
       "calendar": [
-        {"rel_start_min": 30, "duration_min": 90, "subject": "Lieferantengespräch"},
-        {"day": 1, "start": "10:00", "end": "11:30", "subject": "Budgetplanung"}
+        {"rel_start_min": 30, "duration_min": 90, "subject": "Supplier Meeting"},
+        {"day": 1, "start": "10:00", "end": "11:30", "subject": "Budget Planning"}
+      ]
+    },
+        {
+      "id": "muhammed.amjad",
+      "name": "Muhammed Amjad",
+      "email": "amjadshukkoor12@outlook.com",
+      "department": "Procurement",
+      "job_title": "Head of Procurement",
+      "calendar": [
+        {"rel_start_min": 30, "duration_min": 90, "subject": "Supplier Meeting"},
+        {"day": 1, "start": "10:00", "end": "11:30", "subject": "Budget Planning"}
       ]
     },
     {
       "id": "julia.hoffmann",
       "name": "Julia Hoffmann",
       "email": "julia.hoffmann@example.com",
-      "department": "Geschäftsführung",
-      "job_title": "Geschäftsführerin",
+      "department": "Management",
+      "job_title": "Managing Director",
       "calendar": [
-        {"day": 0, "all_day": true, "subject": "Aufsichtsrat"},
-        {"day": 1, "all_day": true, "subject": "Messe"},
-        {"day": 2, "start": "09:00", "end": "13:00", "subject": "Strategie-Klausur"}
+        {"day": 0, "all_day": true, "subject": "Supervisory Board Meeting"},
+        {"day": 1, "all_day": true, "subject": "Trade Fair"},
+        {"day": 2, "start": "09:00", "end": "13:00", "subject": "Strategy Retreat"}
       ]
     },
     {
@@ -67,7 +78,90 @@
       "department": "Marketing",
       "job_title": "Marketing Manager",
       "calendar": [
-        {"rel_start_min": -20, "duration_min": 45, "subject": "Kampagnen-Call"}
+        {"rel_start_min": -20, "duration_min": 45, "subject": "Campaign Call"}
+      ]
+    },
+    {
+      "id": "katharina.fischer",
+      "name": "Katharina Fischer",
+      "email": "katharina.fischer@example.com",
+      "department": "IT",
+      "job_title": "Head of IT",
+      "calendar": [
+        {"day": 0, "start": "11:00", "end": "12:00", "subject": "Security Audit"},
+        {"day": 1, "start": "10:00", "end": "11:00", "subject": "Server Maintenance"}
+      ]
+    },
+    {
+      "id": "jonas.keller",
+      "name": "Jonas Keller",
+      "email": "jonas.keller@example.com",
+      "department": "Customer Service",
+      "job_title": "Customer Service Team Lead",
+      "calendar": [
+        {"rel_start_min": 10, "duration_min": 30, "subject": "Escalation Call"}
+      ]
+    },
+    {
+      "id": "elena.kraus",
+      "name": "Elena Kraus",
+      "email": "elena.kraus@example.com",
+      "department": "Legal",
+      "job_title": "In-House Counsel",
+      "calendar": [
+        {"day": 0, "start": "13:00", "end": "14:30", "subject": "Contract Review"},
+        {"day": 2, "all_day": true, "subject": "Employment Law Training"}
+      ]
+    },
+    {
+      "id": "ahmet.demir",
+      "name": "Ahmet Demir",
+      "email": "ahmet.demir@example.com",
+      "department": "Logistics",
+      "job_title": "Warehouse Manager",
+      "calendar": [
+        {"day": 1, "start": "08:00", "end": "10:00", "subject": "Goods Receipt Inspection"}
+      ]
+    },
+    {
+      "id": "laura.neumann",
+      "name": "Laura Neumann",
+      "email": "laura.neumann@example.com",
+      "department": "Product Management",
+      "job_title": "Product Owner",
+      "calendar": [
+        {"rel_start_min": -40, "duration_min": 60, "subject": "Product Roadmap"},
+        {"day": 1, "start": "14:00", "end": "15:00", "subject": "Customer Feedback Workshop"}
+      ]
+    },
+    {
+      "id": "sabine.krueger",
+      "name": "Sabine Krüger",
+      "email": "sabine.krueger@example.com",
+      "department": "Finance",
+      "job_title": "Head of Controlling",
+      "calendar": [
+        {"day": 0, "start": "15:00", "end": "16:00", "subject": "Quarter-End Close"},
+        {"day": 1, "start": "10:00", "end": "12:00", "subject": "Budget Approval"}
+      ]
+    },
+    {
+      "id": "felix.berger",
+      "name": "Felix Berger",
+      "email": "felix.berger@example.com",
+      "department": "Facility Management",
+      "job_title": "Facility Manager",
+      "calendar": []
+    },
+    {
+      "id": "leonie.braun",
+      "name": "Leonie Braun",
+      "email": "leonie.braun@example.com",
+      "department": "Communications",
+      "job_title": "PR Specialist",
+      "calendar": [
+        {"rel_start_min": 45, "duration_min": 30, "subject": "Press Appointment"},
+        {"day": 3, "all_day": true, "subject": "Trade Fair"}
       ]
     }
   ]
