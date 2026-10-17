@@ -11,6 +11,7 @@ import java.net.URL
 import java.net.URLEncoder
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
+import java.util.Base64
 
 data class Employee(
     val id: String,
@@ -49,6 +50,16 @@ data class BookingResult(val created: Boolean, val slot: Slot, val notified: Boo
 data class BackendHealth(val company: String, val mode: String)
 
 data class AppVersionInfo(val available: Boolean, val versionCode: Int, val versionName: String, val downloadPath: String)
+
+/** Ergebnis von POST /api/badges: Ausweis angelegt (und hoffentlich gedruckt). */
+data class BadgeResult(
+    val id: String,
+    val printed: Boolean,
+    val printMethod: String,
+    val printDetail: String,
+    /** Vorschau der Karte als JPEG – nur zum Anzeigen, wird nicht gespeichert */
+    val previewJpeg: ByteArray?,
+)
 
 class BackendException(message: String, val httpCode: Int = 0) : IOException(message) {
     val isConflict: Boolean get() = httpCode == 409
@@ -120,6 +131,53 @@ class BackendClient(baseUrl: String, private val apiKey: String) {
         )
     }
 
+    /**
+     * Besucherausweis anlegen und drucken lassen. Das Foto (JPEG) ist optional und wird im
+     * Backend nur im Arbeitsspeicher verarbeitet.
+     */
+    suspend fun createBadge(
+        visitor: String,
+        employee: Employee?,
+        purpose: String,
+        language: String,
+        photoJpeg: ByteArray?,
+    ): BadgeResult {
+        val body = JSONObject()
+            .put("visitor_name", visitor)
+            .put("employee_id", employee?.id ?: "")
+            .put("employee_name", employee?.name ?: "")
+            .put("purpose", purpose)
+            .put("language", language)
+        if (photoJpeg != null) body.put("photo_jpeg_base64", Base64.getEncoder().encodeToString(photoJpeg))
+        // Drucken kann ein paar Sekunden dauern (Drucker wacht auf …)
+        val o = JSONObject(request("POST", "/api/badges", body, timeoutMs = 45_000))
+        val print = o.optJSONObject("print")
+        val preview = o.optString("preview_jpeg_base64").takeIf { it.isNotBlank() }
+        return BadgeResult(
+            id = o.optString("id"),
+            printed = print?.optBoolean("sent") ?: false,
+            printMethod = print?.optString("method") ?: "",
+            printDetail = print?.optString("detail") ?: "",
+            previewJpeg = preview?.let { runCatching { Base64.getDecoder().decode(it) }.getOrNull() },
+        )
+    }
+
+    /** Drucker-Status für den Admin-Bereich als kurzer Text */
+    suspend fun printerStatus(): String {
+        val o = JSONObject(request("GET", "/api/printer/status"))
+        return if (o.optBoolean("reachable")) {
+            "${o.optString("model")} · ${o.optString("state")}"
+        } else {
+            "nicht erreichbar: ${o.optString("detail", o.optString("url"))}"
+        }
+    }
+
+    /** Testausweis drucken (ohne Foto) */
+    suspend fun printerTest(): String {
+        val o = JSONObject(request("POST", "/api/printer/test", JSONObject(), timeoutMs = 45_000))
+        return if (o.optBoolean("sent")) "gesendet über ${o.optString("method")}" else "Fehler: ${o.optString("detail")}"
+    }
+
     suspend fun latestApp(): AppVersionInfo {
         val o = JSONObject(request("GET", "/api/app/latest", auth = false))
         return AppVersionInfo(
@@ -158,12 +216,18 @@ class BackendClient(baseUrl: String, private val apiKey: String) {
     }
 
     // ------------------------------------------------------------------ Intern
-    private suspend fun request(method: String, path: String, body: JSONObject? = null, auth: Boolean = true): String =
+    private suspend fun request(
+        method: String,
+        path: String,
+        body: JSONObject? = null,
+        auth: Boolean = true,
+        timeoutMs: Int = 20_000,
+    ): String =
         withContext(Dispatchers.IO) {
             val conn = (URL(base + path).openConnection() as HttpURLConnection).apply {
                 requestMethod = method
                 connectTimeout = 5000
-                readTimeout = 20000
+                readTimeout = timeoutMs
                 setRequestProperty("Accept", "application/json")
                 if (auth) setRequestProperty("X-Api-Key", apiKey)
                 if (body != null) {
