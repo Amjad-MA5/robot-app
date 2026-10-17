@@ -9,6 +9,9 @@ android/.idea/
 backend/.venv/
 backend/.env
 backend/data/msal_token_cache.json
+# Besucherausweise enthalten Personendaten – niemals einchecken
+backend/data/badges.json
+backend/data/badges.tmp
 backend/apk/*.apk
 __pycache__/
 .pytest_cache/
