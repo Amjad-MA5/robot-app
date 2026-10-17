@@ -24,6 +24,8 @@ from .models import (
     ArrivalRequest,
     ArrivalResponse,
     Availability,
+    DeliveryRequest,
+    DeliveryResponse,
     BusyBlock,
     Employee,
     EmployeeMatch,
@@ -45,6 +47,10 @@ def build_provider(cfg: Settings) -> Provider:
         from .providers.graph import GraphProvider
 
         return GraphProvider(cfg)
+    if cfg.mode == "smtp":
+        from .providers.smtp import SmtpProvider
+
+        return SmtpProvider(cfg)
     from .providers.mock import MockProvider
 
     return MockProvider(cfg)
@@ -273,6 +279,17 @@ def visit_walk_in(req: WalkInRequest) -> WalkInResponse:
         notified=False,
         next_slots=next_slots,
     )
+
+
+@app.post("/api/visits/delivery", response_model=DeliveryResponse, dependencies=[Depends(require_key)])
+def visit_delivery(req: DeliveryRequest) -> DeliveryResponse:
+    """Paketbote am Empfang → Empfänger benachrichtigen, Roboter sagt dem Boten, was zu tun ist."""
+    employee = get_employee_or_404(req.employee_id)
+    carrier = " ".join(req.carrier.split())[:60]
+    subject, html, text = messages.delivery(carrier, now_local(), req.note, settings.delivery_handling)
+    result = do_notify(employee, subject, html, text)
+    log_visit("Lieferung", carrier or "Zusteller", employee, "benachrichtigt" if result.sent else f"Fehler: {result.detail}")
+    return DeliveryResponse(employee=employee, notification=result, handling=settings.delivery_handling)
 
 
 @app.post("/api/appointments", response_model=AppointmentResponse, dependencies=[Depends(require_key)])

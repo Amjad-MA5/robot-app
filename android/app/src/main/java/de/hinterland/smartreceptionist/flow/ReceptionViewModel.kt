@@ -405,7 +405,8 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         if (visit.intent != null) say(greeting)
 
         if (!askIntent(visit, preface = greeting)) return
-        if (!askVisitorName(visit)) return
+        // Paketboten brauchen keinen Namen – nur den Empfänger.
+        if (visit.intent != Intent.DELIVERY && !askVisitorName(visit)) return
         val employee = resolveEmployee(visit) ?: return
         visit.employee = employee
 
@@ -413,6 +414,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
             Intent.APPOINTMENT -> scenarioAppointment(visit, employee)
             Intent.WALK_IN -> scenarioWalkIn(visit, employee)
             Intent.BOOK -> scenarioBook(visit, employee, initialSlots = null)
+            Intent.DELIVERY -> scenarioDelivery(employee)
             else -> say(l.goodbye)
         }
     }
@@ -435,6 +437,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
                 UiOption(OPT_APPOINTMENT, l.optHaveAppointment, primary = true),
                 UiOption(OPT_WALK_IN, l.optWalkIn),
                 UiOption(OPT_BOOK, l.optBook),
+                UiOption(OPT_DELIVERY, l.optDelivery),
             )
             val input = ask(l.askAppointment, preface = greetingFirst, options = options) ?: return noResponse()
             greetingFirst = null
@@ -477,6 +480,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         OPT_APPOINTMENT -> Intent.APPOINTMENT
         OPT_WALK_IN -> Intent.WALK_IN
         OPT_BOOK -> Intent.BOOK
+        OPT_DELIVERY -> Intent.DELIVERY
         else -> null
     }
 
@@ -514,6 +518,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
     private fun employeeQuestion(intent: Intent?): String = when (intent) {
         Intent.APPOINTMENT -> lines.askEmployeeAppointment
         Intent.BOOK -> lines.askEmployeeBook
+        Intent.DELIVERY -> lines.askEmployeeDelivery
         else -> lines.askEmployeeWalkIn
     }
 
@@ -631,6 +636,26 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
             say(l.arrivalFailed(employee.name))
         }
         escortToWaitingRoom(employee)
+    }
+
+    // ============================================== Paketlieferung
+    private suspend fun scenarioDelivery(employee: Employee) {
+        val l = lines
+        setScreen(title = employee.name, subtitle = l.thinking, mood = Mood.THINKING)
+        val result = try {
+            backend.delivery(employee.id)
+        } catch (e: Exception) {
+            Log.w(TAG, "Lieferung melden fehlgeschlagen", e)
+            say(l.backendDown)
+            return
+        }
+        if (!result.notified) {
+            setMood(Mood.SAD)
+            say(l.arrivalFailed(employee.name))
+            return
+        }
+        setMood(Mood.JOY)
+        say(if (result.waitForRecipient) l.deliveryWaitForRecipient(employee.name) else l.deliveryLeaveAtDesk(employee.name))
     }
 
     // ============================================== Szenario 2: ohne Termin
@@ -849,6 +874,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         const val OPT_APPOINTMENT = "intent:appointment"
         const val OPT_WALK_IN = "intent:walk_in"
         const val OPT_BOOK = "intent:book"
+        const val OPT_DELIVERY = "intent:delivery"
         const val OPT_YES = "yes"
         const val OPT_NO = "no"
         const val OPT_MORE = "slots:more"

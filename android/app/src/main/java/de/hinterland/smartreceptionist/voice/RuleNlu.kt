@@ -4,7 +4,7 @@ import java.time.DayOfWeek
 import java.time.OffsetDateTime
 
 /** Was der Besucher möchte. */
-enum class Intent { APPOINTMENT, WALK_IN, BOOK, OTHER }
+enum class Intent { APPOINTMENT, WALK_IN, BOOK, DELIVERY, OTHER }
 
 /**
  * Regelbasiertes Sprachverständnis (Deutsch + Englisch).
@@ -43,6 +43,10 @@ object RuleNlu {
         }
     }
 
+    private val DELIVERY = Regex(
+        "paket|lieferung|zusteller|päckchen|\\bliefere\\b|sendung|\\bpost für|" +
+            "package|parcel|delivery|courier|deliver(ing)? (a|some|something)"
+    )
     private val BOOK = Regex(
         "termin (vereinbaren|ausmachen|machen|buchen|bekommen|reservieren)|\\bneuen termin|" +
             "\\beinen termin (bitte|möchte|hätte|haben möchte|bekommen)|termin haben möchte|" +
@@ -64,6 +68,7 @@ object RuleNlu {
     fun intent(text: String): Intent? {
         val t = norm(text)
         return when {
+            DELIVERY.containsMatchIn(t) -> Intent.DELIVERY
             BOOK.containsMatchIn(t) -> Intent.BOOK
             WALK_IN_STRONG.containsMatchIn(t) -> Intent.WALK_IN
             APPOINTMENT.containsMatchIn(t) -> Intent.APPOINTMENT

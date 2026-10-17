@@ -168,3 +168,47 @@ def test_is_free_now():
     busy = [BusyBlock(start=FIXED_NOW - timedelta(minutes=5), end=FIXED_NOW + timedelta(minutes=30))]
     assert scheduling.is_free_now(busy, FIXED_NOW, settings) is False
     assert scheduling.is_free_now([], FIXED_NOW, settings) is True
+
+
+def test_delivery_notifies_recipient(client):
+    r = client.post(
+        "/api/visits/delivery",
+        headers=HEADERS,
+        json={"employee_id": "lukas.becker", "carrier": "DHL"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["notification"]["sent"] is True
+    assert body["handling"] == "leave_at_desk"
+    inbox = client.get("/api/mock/inbox", headers=HEADERS).json()
+    assert "Paket" in inbox[0]["subject"] and "DHL" in inbox[0]["subject"]
+
+
+def test_delivery_unknown_employee_404(client):
+    r = client.post("/api/visits/delivery", headers=HEADERS, json={"employee_id": "nobody"})
+    assert r.status_code == 404
+
+
+def test_smtp_provider_sends_mail(monkeypatch):
+    from app.config import Settings
+    from app.providers import smtp as smtp_mod
+
+    sent = []
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout=0): sent.append(("connect", host, port))
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def starttls(self, context=None): pass
+        def login(self, user, password): sent.append(("login", user))
+        def send_message(self, msg): sent.append(("mail", msg["To"], msg["Subject"]))
+
+    monkeypatch.setattr(smtp_mod.smtplib, "SMTP", FakeSMTP)
+    monkeypatch.setenv("SR_SMTP_USER", "me@gmail.com")
+    monkeypatch.setenv("SR_SMTP_PASSWORD", "pw")
+    monkeypatch.setenv("SR_SMTP_REDIRECT_TO", "test@example.org")
+    provider = smtp_mod.SmtpProvider(Settings())
+    employee = provider.get_employee("lukas.becker")
+    result = provider.notify(employee, "Betreff", "<p>Hi</p>", "Hi")
+    assert result.sent and result.channel == "email"
+    assert ("mail", "test@example.org", "Betreff") in sent

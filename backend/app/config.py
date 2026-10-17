@@ -43,6 +43,8 @@ class Settings:
     # "mock" = alles simuliert, "graph" = echtes Microsoft 365 über MS Graph
     mode: str = field(default_factory=lambda: _env("SR_MODE", "mock").lower())
     company_name: str = field(default_factory=lambda: _env("SR_COMPANY_NAME", "Hinterland Hack"))
+    # Was mit Paketen passiert: leave_at_desk | wait_for_recipient
+    delivery_handling: str = field(default_factory=lambda: _env("SR_DELIVERY_HANDLING", "leave_at_desk"))
 
     timezone: ZoneInfo = field(default_factory=lambda: ZoneInfo(_env("SR_TIMEZONE", "Europe/Berlin")))
     work_start: time = field(default_factory=lambda: _parse_time(_env("SR_WORK_START", "09:00")))
@@ -65,6 +67,15 @@ class Settings:
         default_factory=lambda: _resolve(_env("SR_MOCK_DATA", "data/mock_employees.json"))
     )
     apk_dir: Path = field(default_factory=lambda: _resolve(_env("SR_APK_DIR", "apk")))
+
+    # --- E-Mail per SMTP (SR_MODE=smtp: Mitarbeiter/Kalender aus der Mock-Datei, Benachrichtigung per E-Mail) ---
+    smtp_host: str = field(default_factory=lambda: _env("SR_SMTP_HOST", "smtp.gmail.com"))
+    smtp_port: int = field(default_factory=lambda: _env_int("SR_SMTP_PORT", 587))
+    smtp_user: str = field(default_factory=lambda: _env("SR_SMTP_USER"))
+    smtp_password: str = field(default_factory=lambda: _env("SR_SMTP_PASSWORD"))
+    smtp_from: str = field(default_factory=lambda: _env("SR_SMTP_FROM"))
+    # Zum Testen: alle Mails an diese Adresse statt an die Mitarbeiter schicken
+    smtp_redirect_to: str = field(default_factory=lambda: _env("SR_SMTP_REDIRECT_TO"))
 
     # --- Microsoft Graph -------------------------------------------------
     graph_tenant_id: str = field(default_factory=lambda: _env("SR_GRAPH_TENANT_ID"))
@@ -92,7 +103,7 @@ class Settings:
     def __post_init__(self) -> None:
         # Im Demo-Modus sollen die Szenarien auch am Wochenende oder abends
         # (Hackathon!) funktionieren – solange nichts anderes eingestellt ist.
-        if self.mode == "mock":
+        if self.mode in ("mock", "smtp"):
             if not _env("SR_WORK_DAYS"):
                 self.work_days = (1, 2, 3, 4, 5, 6, 7)
             if not _env("SR_WORK_START"):

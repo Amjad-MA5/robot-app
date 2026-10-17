@@ -59,6 +59,19 @@ class ArrivalResponse(BaseModel):
     appointment: Optional[BusyBlock] = None
 
 
+class DeliveryRequest(BaseModel):
+    employee_id: str
+    carrier: str = ""
+    note: str = ""
+
+
+class DeliveryResponse(BaseModel):
+    employee: Employee
+    notification: NotificationResult
+    # leave_at_desk | wait_for_recipient – steuert, was der Roboter dem Boten sagt
+    handling: str
+
+
 class WalkInRequest(BaseModel):
     visitor_name: str
     employee_id: str

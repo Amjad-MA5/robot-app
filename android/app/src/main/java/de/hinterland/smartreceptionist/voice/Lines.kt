@@ -22,6 +22,7 @@ interface Lines {
     val optHaveAppointment: String
     val optWalkIn: String
     val optBook: String
+    val optDelivery: String
     val askWalkInOrBook: String
     val otherRequest: String
 
@@ -34,6 +35,7 @@ interface Lines {
     val askEmployeeAppointment: String
     val askEmployeeWalkIn: String
     val askEmployeeBook: String
+    val askEmployeeDelivery: String
     val employeeHint: String
     fun employeeNotFound(query: String): String
     fun confirmEmployee(name: String): String
@@ -44,6 +46,10 @@ interface Lines {
     // Szenario 1
     fun arrivalNotified(employee: String): String
     fun arrivalFailed(employee: String): String
+
+    // Paketlieferung
+    fun deliveryLeaveAtDesk(employee: String): String
+    fun deliveryWaitForRecipient(employee: String): String
 
     // Begleitung
     val followMe: String
@@ -108,6 +114,7 @@ object GermanLines : Lines {
     override val optHaveAppointment = "Ja, ich habe einen Termin"
     override val optWalkIn = "Nein, ich möchte jemanden sprechen"
     override val optBook = "Ich möchte einen Termin vereinbaren"
+    override val optDelivery = "Ich liefere ein Paket"
     override val askWalkInOrBook = "Möchten Sie jetzt jemanden sprechen oder einen Termin vereinbaren?"
     override val otherRequest = "Dabei kann ich leider noch nicht helfen – ich kümmere mich um die Anmeldung von Besuchern."
 
@@ -118,6 +125,7 @@ object GermanLines : Lines {
     override val askEmployeeAppointment = "Bei wem haben Sie Ihren Termin?"
     override val askEmployeeWalkIn = "Mit wem möchten Sie sprechen?"
     override val askEmployeeBook = "Bei wem möchten Sie einen Termin vereinbaren?"
+    override val askEmployeeDelivery = "Für wen ist das Paket?"
     override val employeeHint = "Name des Ansprechpartners"
     override fun employeeNotFound(query: String) =
         "Ich habe leider niemanden mit dem Namen $query gefunden. Bitte wählen Sie auf dem Bildschirm aus oder nennen Sie den Namen noch einmal."
@@ -126,6 +134,10 @@ object GermanLines : Lines {
     override val showAllEmployees = "Alle Mitarbeitenden anzeigen"
     override fun employeeOk(name: String) = "Alles klar, $name."
 
+    override fun deliveryLeaveAtDesk(employee: String) =
+        "Vielen Dank! Ich habe $employee Bescheid gegeben. Bitte legen Sie das Paket am Empfang ab."
+    override fun deliveryWaitForRecipient(employee: String) =
+        "Vielen Dank! Ich habe $employee Bescheid gegeben. Bitte warten Sie einen Moment, das Paket wird gleich abgeholt."
     override fun arrivalNotified(employee: String) = "Vielen Dank! Ich habe $employee Bescheid gegeben, dass Sie da sind."
     override fun arrivalFailed(employee: String) =
         "Ich konnte $employee leider nicht automatisch erreichen. Bitte nehmen Sie trotzdem im Warteraum Platz."
@@ -213,6 +225,7 @@ object EnglishLines : Lines {
     override val optHaveAppointment = "Yes, I have an appointment"
     override val optWalkIn = "No, I'd like to talk to someone"
     override val optBook = "I'd like to make an appointment"
+    override val optDelivery = "I'm delivering a package"
     override val askWalkInOrBook = "Would you like to talk to someone now, or make an appointment?"
     override val otherRequest = "I'm sorry, I can't help with that yet – I take care of visitor check-in."
 
@@ -223,6 +236,7 @@ object EnglishLines : Lines {
     override val askEmployeeAppointment = "Who is your appointment with?"
     override val askEmployeeWalkIn = "Who would you like to talk to?"
     override val askEmployeeBook = "Who would you like to make an appointment with?"
+    override val askEmployeeDelivery = "Who is the package for?"
     override val employeeHint = "Name of your contact"
     override fun employeeNotFound(query: String) =
         "Sorry, I couldn't find anyone called $query. Please pick from the screen or say the name again."
@@ -231,6 +245,10 @@ object EnglishLines : Lines {
     override val showAllEmployees = "Show all employees"
     override fun employeeOk(name: String) = "Alright, $name."
 
+    override fun deliveryLeaveAtDesk(employee: String) =
+        "Thank you! I've let $employee know. Please leave the package at the reception desk."
+    override fun deliveryWaitForRecipient(employee: String) =
+        "Thank you! I've let $employee know. Please wait a moment, someone will pick up the package shortly."
     override fun arrivalNotified(employee: String) = "Thank you! I've let $employee know that you're here."
     override fun arrivalFailed(employee: String) =
         "Unfortunately I couldn't reach $employee automatically. Please take a seat in the waiting room anyway."

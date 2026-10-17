@@ -35,6 +35,8 @@ data class Notification(val sent: Boolean, val channel: String, val detail: Stri
 
 data class ArrivalResult(val employee: Employee, val notification: Notification, val appointmentStart: OffsetDateTime?)
 
+data class DeliveryResult(val notified: Boolean, val waitForRecipient: Boolean)
+
 data class WalkInResult(
     val employee: Employee,
     val freeNow: Boolean,
@@ -83,6 +85,15 @@ class BackendClient(baseUrl: String, private val apiKey: String) {
             employee = parseEmployee(o.getJSONObject("employee")),
             notification = parseNotification(o.optJSONObject("notification")),
             appointmentStart = appt?.let { OffsetDateTime.parse(it.getString("start")) },
+        )
+    }
+
+    suspend fun delivery(employeeId: String): DeliveryResult {
+        val body = JSONObject().put("employee_id", employeeId)
+        val o = JSONObject(request("POST", "/api/visits/delivery", body))
+        return DeliveryResult(
+            notified = o.optJSONObject("notification")?.optBoolean("sent") ?: false,
+            waitForRecipient = o.optString("handling") == "wait_for_recipient",
         )
     }
 

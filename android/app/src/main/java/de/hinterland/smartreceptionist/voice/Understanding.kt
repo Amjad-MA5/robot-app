@@ -80,7 +80,7 @@ class Understander(private val useLlm: () -> Boolean) {
             Offered appointment options: $slotsText.
             Analyse the visitor's reply (it comes from speech recognition, German or English, may contain recognition errors).
             Reply ONLY with one compact JSON object, no markdown, with exactly these keys:
-            {"intent": "appointment" | "walk_in" | "book" | "other" | null,
+            {"intent": "appointment" | "walk_in" | "book" | "delivery" | "other" | null,
              "answer": "yes" | "no" | null,
              "visitor_name": string | null,
              "employee_name": string | null,
@@ -90,7 +90,7 @@ class Understander(private val useLlm: () -> Boolean) {
              "wants_cancel": boolean}
             Rules:
             - intent "appointment" = visitor already has an appointment/meeting; "walk_in" = no appointment but wants to talk to someone now;
-              "book" = wants to make/schedule a new appointment; "other" = unrelated request; null if not stated.
+              "book" = wants to make/schedule a new appointment; "delivery" = is delivering a package/parcel/mail for someone; "other" = unrelated request; null if not stated.
             - "answer" = whether the reply means yes or no to the robot's question; null if neither.
             - visitor_name = the visitor's OWN name only if they state it (in dialog step NAME a bare name is the visitor's name). Never use the employee's name here.
             - employee_name = the person at the company they want to see (keep titles out, e.g. "Frau Schmidt" -> "Schmidt"). In dialog step EMPLOYEE a bare name is the employee.
@@ -126,6 +126,7 @@ class Understander(private val useLlm: () -> Boolean) {
                         "appointment" -> Intent.APPOINTMENT
                         "walk_in", "walkin", "walk-in" -> Intent.WALK_IN
                         "book" -> Intent.BOOK
+                        "delivery" -> Intent.DELIVERY
                         "other" -> Intent.OTHER
                         else -> null
                     },

@@ -74,4 +74,11 @@ class RuleNluTest {
         assertEquals("morgen um 10:30 Uhr", GermanLines.formatSlot(slot, slot.toLocalDate().minusDays(1)))
         assertEquals("on Friday, October 16, at 10:30", EnglishLines.formatSlot(slot, today))
     }
+
+    @Test
+    fun recognizesDelivery() {
+        assertEquals(Intent.DELIVERY, RuleNlu.intent("Ich habe ein Paket für Herrn Becker"))
+        assertEquals(Intent.DELIVERY, RuleNlu.intent("I'm delivering a package for Lukas"))
+        assertEquals(Intent.APPOINTMENT, RuleNlu.intent("Ich habe einen Termin bei Frau Schmidt"))
+    }
 }

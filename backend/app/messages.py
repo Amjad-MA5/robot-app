@@ -47,6 +47,27 @@ def arrival(visitor: str, now: datetime, appointment: BusyBlock | None, purpose:
     return subject, html, text
 
 
+def delivery(carrier: str, now: datetime, note: str, handling: str) -> tuple[str, str, str]:
+    who = carrier.strip() or "ein Zusteller"
+    c = escape(who)
+    action_html = (
+        "Bitte kommen Sie zum Empfang und holen Sie das Paket ab."
+        if handling == "wait_for_recipient"
+        else "Das Paket wird am Empfang für Sie hinterlegt."
+    )
+    action_text = action_html
+    note_html = f"<p>Hinweis: {escape(note)}</p>" if note.strip() else ""
+    note_text = f"\nHinweis: {note}" if note.strip() else ""
+    subject = f"Paket für Sie am Empfang ({who})"
+    html = (
+        f"<p>📦 <b>Paket für Sie</b></p>"
+        f"<p>{c} hat um {_hm(now)} Uhr ein Paket für Sie am Empfang abgegeben.</p>"
+        f"{note_html}<p>{action_html}</p>"
+    )
+    text = f"Paket für Sie: {who} hat um {_hm(now)} Uhr ein Paket am Empfang abgegeben.{note_text}\n{action_text}"
+    return subject, html, text
+
+
 def walk_in(visitor: str, now: datetime, free_now: bool, first_free: datetime | None, purpose: str) -> tuple[str, str, str]:
     v = escape(visitor)
     if free_now:
