@@ -8,8 +8,8 @@ import android.content.SharedPreferences
  * Ecke drücken → PIN) geändert und in den SharedPreferences gespeichert.
  */
 data class AppSettings(
-    /** Adresse des Backends, z. B. http://192.168.2.50:8080 */
-    val backendUrl: String = "http://192.168.2.100:8080",
+    /** Öffentliche Backend-Adresse; im Admin-Bereich änderbar. */
+    val backendUrl: String = "https://robot-app-nv9c.onrender.com",
     /** Muss mit SR_API_KEY im Backend übereinstimmen */
     val apiKey: String = "hinterland-demo",
     /** Name des Kartenpunkts für den Warteraum (Karten-Tool des Roboters) */

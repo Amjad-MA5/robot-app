@@ -106,7 +106,7 @@ fun AdminScreen(initial: AppSettings, onSave: (AppSettings) -> Unit, onClose: ()
         }
 
         Section("Backend")
-        Field("Backend URL (e.g. http://192.168.2.50:8080)", s.backendUrl) { s = s.copy(backendUrl = it) }
+        Field("Backend URL (e.g. https://your-service.onrender.com)", s.backendUrl) { s = s.copy(backendUrl = it) }
         Field("API key", s.apiKey) { s = s.copy(apiKey = it) }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             SmallButton("Test connection") {
