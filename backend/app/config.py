@@ -26,6 +26,18 @@ def _env_int(name: str, default: int) -> int:
     return int(raw) if raw else default
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = _env(name)
+    if not raw:
+        return default
+    value = raw.lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean value")
+
+
 def _parse_time(raw: str) -> time:
     hours, minutes = raw.split(":")
     return time(int(hours), int(minutes))
@@ -42,6 +54,7 @@ class Settings:
     api_key: str = field(default_factory=lambda: _env("SR_API_KEY", "hinterland-demo"))
     # "mock" = alles simuliert, "graph" = echtes Microsoft 365 über MS Graph
     mode: str = field(default_factory=lambda: _env("SR_MODE", "mock").lower())
+    mock_teams: bool = field(default_factory=lambda: _env_bool("SR_MOCK_TEAMS"))
     company_name: str = field(default_factory=lambda: _env("SR_COMPANY_NAME", "Hinterland Hack"))
     # Was mit Paketen passiert: leave_at_desk | wait_for_recipient
     delivery_handling: str = field(default_factory=lambda: _env("SR_DELIVERY_HANDLING", "leave_at_desk"))

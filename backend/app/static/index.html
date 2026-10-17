@@ -82,8 +82,8 @@
   </section>
 
   <section class="card">
-    <h2>Teams-Postfach (Demo)</h2>
-    <p class="muted">Im Demo-Modus landen alle Benachrichtigungen hier statt in Teams.</p>
+    <h2>Simuliertes Teams-Postfach</h2>
+    <p class="muted">Nicht zugeordnete Adressen erscheinen hier; passende Microsoft-365-Konten erhalten bei aktiver Anmeldung eine echte Teams-Nachricht.</p>
     <div class="list" id="inbox"><span class="muted">—</span></div>
   </section>
 
@@ -153,12 +153,20 @@ async function loadStatus() {
       + `Modus <b>${esc(s.mode)}</b> · Arbeitszeit ${esc(s.work_hours)}`;
     if (p.signed_in_as) html += `<br>Angemeldet als <b>${esc(p.signed_in_as)}</b>`;
     if (p.error) html += `<br><span class="muted">${esc(p.error)}</span>`;
+    if (p.teams) {
+      html += `<br>Teams <span class="pill ${p.teams.ready ? "ok" : "warn"}">${p.teams.ready ? "bereit" : "nicht angemeldet"}</span>`;
+      if (p.teams.signed_in_as) html += ` · Angemeldet als <b>${esc(p.teams.signed_in_as)}</b>`;
+      if (p.teams.error) html += `<br><span class="muted">${esc(p.teams.error)}</span>`;
+    }
     $("status").innerHTML = html;
-    $("login").style.display = s.mode === "graph" && p.auth === "delegated" ? "flex" : "none";
-    if (p.device_login_pending) {
-      $("loginInfo").innerHTML = `<p>Öffne <a href="${esc(p.device_login_pending.verification_uri)}" target="_blank">${esc(p.device_login_pending.verification_uri)}</a> und gib den Code <b>${esc(p.device_login_pending.user_code)}</b> ein.</p>`;
-    } else if (p.ready) {
+    const auth = p.teams || (s.mode === "graph" ? p : null);
+    $("login").style.display = auth && auth.auth === "delegated" ? "flex" : "none";
+    if (auth && auth.device_login_pending) {
+      $("loginInfo").innerHTML = `<p>Öffne <a href="${esc(auth.device_login_pending.verification_uri)}" target="_blank">${esc(auth.device_login_pending.verification_uri)}</a> und gib den Code <b>${esc(auth.device_login_pending.user_code)}</b> ein.</p>`;
+    } else if (!auth || auth.ready) {
       $("loginInfo").innerHTML = "";
+    } else if (auth.last_login_error) {
+      $("loginInfo").textContent = auth.last_login_error;
     }
     return true;
   } catch (e) {

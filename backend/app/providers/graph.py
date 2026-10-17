@@ -317,6 +317,46 @@ class GraphProvider(Provider):
             self._chat_ids[employee.id] = chat_id
         self._request("POST", f"/chats/{chat_id}/messages", json_body={"body": {"contentType": "html", "content": html}})
 
+    def notify_teams_by_email(self, employee: Employee, html: str) -> NotificationResult | None:
+        email = employee.email.strip()
+        if not email:
+            return None
+        try:
+            recipient = self._find_user_by_email(email)
+            if recipient is None:
+                return None
+            graph_employee = Employee(
+                id=recipient["id"],
+                name=recipient.get("displayName") or employee.name,
+                email=recipient.get("mail") or recipient.get("userPrincipalName") or email,
+            )
+            self._send_teams_chat(graph_employee, html)
+        except (ProviderError, httpx.HTTPError) as exc:
+            log.warning("Teams-Nachricht an %s fehlgeschlagen: %s", employee.name, exc)
+            return NotificationResult(sent=False, channel="teams", detail=str(exc))
+        return NotificationResult(sent=True, channel="teams", detail=f"Teams-Chat an {employee.name}")
+
+    def _find_user_by_email(self, email: str) -> dict | None:
+        escaped_email = email.replace("'", "''")
+        select = "id,displayName,mail,userPrincipalName"
+        matches: dict[str, dict] = {}
+        for field in ("mail", "userPrincipalName"):
+            response = self._request(
+                "GET",
+                "/users",
+                params={
+                    "$filter": f"{field} eq '{escaped_email}'",
+                    "$select": select,
+                },
+            )
+            for user in response.get("value", []):
+                addresses = (user.get("mail"), user.get("userPrincipalName"))
+                if any(address and address.casefold() == email.casefold() for address in addresses):
+                    matches[user["id"]] = user
+        if len(matches) > 1:
+            raise ProviderError(f"Mehrere Microsoft-Konten für {email} gefunden")
+        return next(iter(matches.values()), None)
+
     def _send_mail(self, employee: Employee, subject: str, html: str) -> None:
         if not employee.email:
             raise ProviderError(f"{employee.name} hat keine E-Mail-Adresse")

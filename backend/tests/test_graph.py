@@ -29,6 +29,18 @@ class FakeGraph:
         if path == "/me":
             return httpx.Response(200, json={"id": ME_ID, "userPrincipalName": "empfang@contoso.com"})
         if path == "/users":
+            query = request.url.params.get("$filter")
+            if query is not None:
+                if EMP.email.casefold() in query.casefold():
+                    return httpx.Response(200, json={"value": [
+                        {
+                            "id": "aad-emp-42",
+                            "displayName": EMP.name,
+                            "mail": EMP.email,
+                            "userPrincipalName": EMP.email,
+                        }
+                    ]})
+                return httpx.Response(200, json={"value": []})
             return httpx.Response(200, json={"value": [
                 {"id": ME_ID, "displayName": "Empfang", "mail": "empfang@contoso.com"},
                 {"id": EMP.id, "displayName": EMP.name, "mail": EMP.email},
@@ -128,6 +140,30 @@ def test_fallback_to_email_when_teams_fails(graph):
     provider._http = httpx.Client(transport=httpx.MockTransport(failing))
     result = provider.notify(EMP, "Betreff", "<p>Hallo</p>", "Hallo")
     assert result.sent and result.channel == "email"
+
+
+def test_mock_employee_email_resolves_to_real_teams_user(graph):
+    provider, fake = graph
+    mock_employee = Employee(id="mock-anna", name=EMP.name, email=EMP.email)
+
+    result = provider.notify_teams_by_email(mock_employee, "<p>Hallo</p>")
+
+    assert result and result.sent and result.channel == "teams"
+    chat_call = next(c for c in fake.calls if c[1] == "/chats")
+    members = chat_call[2]["members"]
+    assert "https://graph.microsoft.com/v1.0/users('aad-emp-42')" in {
+        m["user@odata.bind"] for m in members
+    }
+
+
+def test_mock_employee_without_matching_teams_user_is_not_sent(graph):
+    provider, fake = graph
+    mock_employee = Employee(id="mock-anna", name=EMP.name, email="missing@contoso.com")
+
+    result = provider.notify_teams_by_email(mock_employee, "<p>Hallo</p>")
+
+    assert result is None
+    assert not any(path == "/chats" for _, path, _ in fake.calls)
 
 
 def test_create_appointment_invites_employee(graph):
