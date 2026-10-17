@@ -40,9 +40,9 @@ class MainActivity : ComponentActivity() {
     private val vm: ReceptionViewModel by viewModels()
     private var pageAgent: PageAgent? = null
 
-    // Kamera fürs Ausweisfoto: Berechtigung gleich beim Start holen, nicht erst wenn ein Gast davorsteht
+    // Camera for the badge photo: ask for the permission at start-up, not when a guest is already waiting
     private val cameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        Log.i("MainActivity", "Kamera-Berechtigung: ${if (granted) "erteilt" else "verweigert"}")
+        Log.i("MainActivity", "Camera permission ${if (granted) "granted" else "denied"}")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

@@ -8,6 +8,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ainirobot.agent.AgentCore
 import de.hinterland.smartreceptionist.badge.BadgeLines
+import de.hinterland.smartreceptionist.badge.IppPrinter
+import de.hinterland.smartreceptionist.badge.IppResult
+import de.hinterland.smartreceptionist.badge.LocalBadge
 import de.hinterland.smartreceptionist.badge.NoCamera
 import de.hinterland.smartreceptionist.badge.PhotoCamera
 import de.hinterland.smartreceptionist.badge.badgeLinesFor
@@ -85,7 +88,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
     /** Fahrwerk (austauschbar für Tests/Simulation) */
     internal var navigator: Navigator = RobotNavigator
 
-    /** Kamera fürs Ausweisfoto – setzt die MainActivity (RobotCamera); ohne Kamera gibt es den Ausweis ohne Foto */
+    /** Camera for the badge photo - set by MainActivity (RobotCamera); without a camera the badge has no photo */
     var camera: PhotoCamera = NoCamera
     private val badgeLines: BadgeLines get() = badgeLinesFor(settings.language)
     private val placeCache = PlaceCache(source = { navigator.places() })
@@ -767,7 +770,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
             setMood(Mood.SAD)
             say(l.arrivalFailed(employee.name))
         }
-        // Sicherheit: angemeldete Gäste bekommen einen Besucherausweis mit Foto, Name, ID und QR-Code
+        // Security: guests with an appointment get a visitor badge with photo, name and ID
         if (settings.badgeEnabled) issueBadge(visit, employee)
         escortToWaitingRoom(employee)
     }
@@ -1135,11 +1138,11 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    // ================================================ Besucherausweis
+    // ================================================ Visitor badge
     /**
-     * Foto (mit Einverständnis) → Ausweis im Backend anlegen → Druck am Firmendrucker.
-     * Ohne Kamera, ohne Einverständnis oder bei Fehlern gibt es den Ausweis ohne Foto;
-     * scheitert der Druck, geht der Besuch trotzdem normal weiter.
+     * Photo (only with consent) -> badge -> printout on the office printer.
+     * Without camera, without consent or on errors the badge is printed without a photo;
+     * if printing fails, the visit simply continues.
      */
     private suspend fun issueBadge(visit: Visit, employee: Employee) {
         val b = badgeLines
@@ -1160,24 +1163,21 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
 
             setScreen(title = b.printingTitle, subtitle = b.printing, mood = Mood.THINKING)
             val speech = viewModelScope.launch { say(b.printing) }
-            val result = try {
-                backend.createBadge(visit.visitorName.orEmpty(), employee, visit.purpose, settings.language, photo)
-            } catch (e: Exception) {
-                Log.w(TAG, "Besucherausweis fehlgeschlagen", e)
-                null
+            val outcome = try {
+                createAndPrintBadge(visit.visitorName.orEmpty(), employee, visit.purpose, photo)
             } finally {
-                photo = null // Foto sofort vergessen – es existiert nur noch im Ausdruck
+                photo = null // forget the photo right away - it only exists on the printout
             }
             speech.join()
-            if (result != null) {
-                _ui.update { it.copy(badgePreview = result.previewJpeg, photoMode = null, photo = null) }
-                setScreen(title = b.badgeTitle, subtitle = result.id, mood = if (result.printed) Mood.JOY else Mood.SAD)
+            if (outcome.previewJpeg != null) {
+                _ui.update { it.copy(badgePreview = outcome.previewJpeg, photoMode = null, photo = null) }
+                setScreen(title = b.badgeTitle, subtitle = outcome.id, mood = if (outcome.printed) Mood.JOY else Mood.SAD)
             }
-            if (result?.printed == true) {
+            if (outcome.printed) {
                 say(b.printed(pickupHint()))
-                delay(1_500) // Ausweis-Vorschau kurz stehen lassen
+                delay(1_500) // keep the badge preview on screen for a moment
             } else {
-                Log.w(TAG, "Ausweis nicht gedruckt: ${result?.printDetail}")
+                Log.w(TAG, "Badge not printed: ${outcome.detail}")
                 setMood(Mood.SAD)
                 say(b.printFailed)
             }
@@ -1188,10 +1188,81 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private class BadgeOutcome(val id: String, val previewJpeg: ByteArray?, val printed: Boolean, val detail: String)
+
+    /**
+     * Normally the backend draws the badge (with QR code) and returns the PDF, and the robot sends it to
+     * the printer itself - the robot is in the office network, a cloud backend is not.
+     * If the backend is unreachable, the robot draws the badge itself (without QR code) and prints it anyway.
+     * With an empty printer address the backend prints (for a backend running in the office network).
+     */
+    private suspend fun createAndPrintBadge(visitor: String, employee: Employee, purpose: String, photo: ByteArray?): BadgeOutcome {
+        val printerUrl = settings.printerUrl.trim()
+        val robotPrints = printerUrl.isNotEmpty()
+        val created = if (robotPrints && _ui.value.backendOk == false) {
+            null // health check already failed - do not keep the visitor waiting for a timeout
+        } else {
+            try {
+                backend.createBadge(
+                    visitor, employee, purpose, settings.language, photo,
+                    print = !robotPrints, returnPdf = robotPrints, timeoutMs = if (robotPrints) 20_000 else 45_000,
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Backend could not create the badge", e)
+                null
+            }
+        }
+        if (!robotPrints) {
+            return BadgeOutcome(created?.id.orEmpty(), created?.previewJpeg, created?.printed == true, created?.printDetail ?: "backend unreachable")
+        }
+
+        var badgeId = created?.id?.takeIf { it.isNotBlank() }
+        var preview = created?.previewJpeg
+        var pdf = created?.pdf
+        if (pdf == null) {
+            Log.i(TAG, "Drawing the badge on the robot (backend unavailable)")
+            val local = try {
+                withContext(Dispatchers.Default) {
+                    LocalBadge.render(
+                        visitorName = visitor,
+                        hostName = employee.name,
+                        company = companyName,
+                        photoJpeg = photo,
+                        english = !settings.isGerman,
+                        badgeId = badgeId ?: LocalBadge.newId(),
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Log.w(TAG, "Could not draw the badge on the robot", t)
+                return BadgeOutcome(badgeId.orEmpty(), preview, false, "badge could not be drawn: ${t.message}")
+            }
+            badgeId = local.id
+            preview = local.previewJpeg
+            pdf = local.pdf
+        }
+        val id = badgeId ?: LocalBadge.newId()
+        val document: ByteArray = pdf ?: return BadgeOutcome(id, preview, false, "no PDF")
+        val result = withContext(Dispatchers.IO) {
+            // A malformed printer address must not end the conversation
+            runCatching { IppPrinter(printerUrl).printPdf("Visitor badge $id", document) }
+                .getOrElse { IppResult(false, -1, it.message ?: it.javaClass.simpleName) }
+        }
+        Log.i(TAG, "Badge $id sent to $printerUrl: ${result.detail} (job ${result.jobId})")
+        if (created != null) {
+            runCatching { backend.reportBadgePrinted(created.id, result.ok, "robot-ipp", result.detail, result.jobId) }
+                .onFailure { Log.w(TAG, "Could not report the print result to the backend", it) }
+        }
+        return BadgeOutcome(id, preview, result.ok, result.detail)
+    }
+
     private fun pickupHint(): String =
         settings.badgePickupHint.ifBlank { if (settings.isGerman) "am Drucker" else "at the printer" }
 
-    /** Texte und Spiegelung für die Kamera-Ansicht – gleiche Oberfläche für Ausweis- und Paketfoto. */
+    /** Texts and mirroring for the camera view - same screen for the badge photo and the package photo. */
     private class PhotoPrompt(
         val title: String,
         val subtitle: String,
@@ -1206,13 +1277,13 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         return PhotoPrompt(b.lookAtCameraTitle, b.photoPrivacy, b.lookAtCamera, b.smile, b.cameraUnavailable, settings.cameraMirror)
     }
 
-    /** Beim Paket nicht spiegeln: der Adressaufkleber muss lesbar sein. */
+    /** Do not mirror for a package: the address label must stay readable. */
     private fun packagePrompt(): PhotoPrompt {
         val l = lines
         return PhotoPrompt(l.packagePhotoTitle, l.photoHint, l.packagePhotoLookAt, l.packagePhotoLookAt, l.packagePhotoUnavailable, false)
     }
 
-    /** Kamera an, Besucher sieht sich selbst, Countdown, Foto, „Passt das?“. null = ohne Foto. */
+    /** Camera on, the visitor sees themselves, countdown, photo, "Is it okay?". null = no photo. */
     private suspend fun takePhotoInApp(p: PhotoPrompt): ByteArray? {
         val b = badgeLines
         setScreen(title = p.title, subtitle = p.subtitle, mood = Mood.THINKING)
@@ -1221,7 +1292,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         } catch (e: CancellationException) {
             throw e
         } catch (t: Throwable) {
-            Log.w(TAG, "Kamera konnte nicht geöffnet werden", t)
+            Log.w(TAG, "Could not open the camera", t)
             false
         }
         if (!opened) {
@@ -1239,7 +1310,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
                     _ui.update { it.copy(countdown = n) }
                     delay(COUNTDOWN_STEP_MS)
                 }
-                _ui.update { it.copy(countdown = 0) } // kurzer „Blitz“ in der Oberfläche
+                _ui.update { it.copy(countdown = 0) } // short "flash" in the UI
                 val shot = camera.takePhoto()
                 delay(250)
                 _ui.update { it.copy(countdown = null) }
@@ -1253,7 +1324,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
                     UiOption(OPT_PHOTO_NO, b.optNoPhoto),
                 )
                 val decision = ask(b.reviewQuestion, options = options, timeoutMs = 12_000)
-                    ?: return shot // keine Antwort → Foto passt
+                    ?: return shot // no answer -> keep the photo
                 when (decision) {
                     is UserInput.Option -> when (decision.id) {
                         OPT_PHOTO_OK -> return shot
@@ -1278,7 +1349,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
             if (lastShot == null) say(p.unavailable)
             return lastShot
         } finally {
-            // Kamera sofort freigeben → Personenerkennung des Roboters läuft wieder
+            // Release the camera right away so the robot's person detection works again
             camera.close()
             _ui.update { it.copy(photoMode = null, countdown = null) }
         }

@@ -54,6 +54,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.hinterland.smartreceptionist.BuildConfig
 import de.hinterland.smartreceptionist.badge.CameraConfig
+import de.hinterland.smartreceptionist.badge.IppPrinter
+import de.hinterland.smartreceptionist.badge.LocalBadge
 import de.hinterland.smartreceptionist.badge.RobotCamera
 import de.hinterland.smartreceptionist.config.AppSettings
 import de.hinterland.smartreceptionist.net.AppUpdater
@@ -63,7 +65,9 @@ import de.hinterland.smartreceptionist.robot.RobotController
 import de.hinterland.smartreceptionist.ui.theme.Palette
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun PinDialog(expectedPin: String, onSuccess: () -> Unit, onDismiss: () -> Unit) {
@@ -117,7 +121,7 @@ fun AdminScreen(initial: AppSettings, onSave: (AppSettings) -> Unit, onClose: ()
     }
     fun client() = BackendClient(s.backendUrl, s.apiKey)
 
-    // Eigene Testkamera für den Admin-Bereich – nutzt die (noch ungespeicherten) Einstellungen
+    // Separate test camera for the admin area - uses the (not yet saved) settings
     val currentSettings by rememberUpdatedState(s)
     val testCamera = remember {
         RobotCamera(context) { CameraConfig(currentSettings.cameraRotation, currentSettings.cameraSource) }
@@ -223,7 +227,8 @@ fun AdminScreen(initial: AppSettings, onSave: (AppSettings) -> Unit, onClose: ()
 
         Section("Visitor badge & camera")
         ToggleRow("Print a visitor badge with photo for guests with an appointment", s.badgeEnabled) { s = s.copy(badgeEnabled = it) }
-        Field("Where to pick up the badge (e.g. \"am Drucker neben dem Empfang\")", s.badgePickupHint) { s = s.copy(badgePickupHint = it) }
+        Field("Printer IPP address - the robot prints directly (empty = the backend prints)", s.printerUrl) { s = s.copy(printerUrl = it) }
+        Field("Where to pick up the badge (e.g. \"at the printer next to reception\")", s.badgePickupHint) { s = s.copy(badgePickupHint = it) }
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Camera:", color = Palette.Text, fontSize = 12.sp)
             listOf("auto" to "Auto", "shared" to "Robot stream", "camera2" to "Android camera").forEach { (value, label) ->
@@ -240,7 +245,7 @@ fun AdminScreen(initial: AppSettings, onSave: (AppSettings) -> Unit, onClose: ()
                 )
             }
         }
-        ToggleRow("Mirror the live preview (guest sees himself like in a mirror)", s.cameraMirror) { s = s.copy(cameraMirror = it) }
+        ToggleRow("Mirror the live preview (guests see themselves like in a mirror)", s.cameraMirror) { s = s.copy(cameraMirror = it) }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             SmallButton("Start camera test") {
                 scope.launch {
@@ -250,10 +255,52 @@ fun AdminScreen(initial: AppSettings, onSave: (AppSettings) -> Unit, onClose: ()
             }
             SmallButton("Stop camera") { testCamera.close(); addLog("■ Camera stopped") }
             SmallButton("Printer status") {
-                scope.launch { addLog(runCatching { "🖨 " + client().printerStatus() }.getOrElse { "✖ Printer: ${it.message}" }) }
+                scope.launch {
+                    val url = s.printerUrl.trim()
+                    addLog(runCatching {
+                        if (url.isEmpty()) {
+                            "Backend → " + client().printerStatus()
+                        } else {
+                            val info = withContext(Dispatchers.IO) { IppPrinter(url).status() }
+                            if (info.reachable) {
+                                "Robot → ${info.model} · ${info.state}" + if (info.acceptingJobs == false) " · not accepting jobs" else ""
+                            } else {
+                                "✖ Printer not reachable from the robot: ${info.detail}"
+                            }
+                        }
+                    }.getOrElse { "✖ Printer: ${it.message}" })
+                }
+            }
+            SmallButton("Check job (no paper)") {
+                scope.launch {
+                    val url = s.printerUrl.trim()
+                    if (url.isEmpty()) {
+                        addLog("✖ No printer address set (the backend prints)")
+                        return@launch
+                    }
+                    val r = withContext(Dispatchers.IO) { runCatching { IppPrinter(url).validate() }.getOrNull() }
+                    addLog(if (r?.ok == true) "✔ The printer would accept a badge job" else "✖ Printer: ${r?.detail ?: "invalid address"}")
+                }
             }
             SmallButton("Print test badge") {
-                scope.launch { addLog(runCatching { "🖨 Test badge " + client().printerTest() }.getOrElse { "✖ Printer: ${it.message}" }) }
+                scope.launch {
+                    val url = s.printerUrl.trim()
+                    addLog("… preparing a test badge")
+                    addLog(runCatching {
+                        if (url.isEmpty()) {
+                            val r = client().printerTest()
+                            if (r.sent) "Test badge printed by the backend via ${r.method}" else "✖ Backend: ${r.detail}"
+                        } else {
+                            // Backend layout if reachable, otherwise the robot draws the badge itself
+                            val pdf = runCatching { client().printerTest(print = false, returnPdf = true).pdf }.getOrNull()
+                                ?: withContext(Dispatchers.Default) {
+                                    LocalBadge.render("Test Visitor", "Reception", s.companyName, null, english = s.language == "en", badgeId = "V-TEST-0000").pdf
+                                }
+                            val r = withContext(Dispatchers.IO) { IppPrinter(url).printPdf("Visitor badge (test)", pdf) }
+                            if (r.ok) "Test badge sent to the printer (job ${r.jobId ?: "?"})" else "✖ Printer: ${r.detail}"
+                        }
+                    }.getOrElse { "✖ Printer: ${it.message}" })
+                }
             }
         }
         testFrame?.let { frame ->

@@ -462,7 +462,7 @@ def auth_logout() -> dict:
     return {"ok": True}
 
 
-# ------------------------------------------------------- Besucherausweis (Add-on)
+# ------------------------------------------------------------ Visitor badges
 from .badges.api import router as badges_router  # noqa: E402
 
 app.include_router(badges_router)

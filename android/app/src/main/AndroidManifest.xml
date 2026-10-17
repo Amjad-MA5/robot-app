@@ -10,7 +10,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Roboter-Einstellungen (RobotOS) -->
     <uses-permission android:name="com.ainirobot.coreservice.robotSettingProvider" />
-    <!-- Besucherausweis: Foto des Gastes (nur mit Einverständnis, wird nach dem Druck gelöscht) -->
+    <!-- Visitor badge: photo of the guest (only with consent, deleted after printing) -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.front" android:required="false" />

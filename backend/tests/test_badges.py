@@ -1,4 +1,4 @@
-"""Tests für Besucherausweis, Druck (IPP) und Datenschutz (Löschen)."""
+"""Tests for visitor badges, printing (IPP) and privacy (deletion)."""
 from __future__ import annotations
 
 import base64
@@ -58,7 +58,7 @@ def create(client, **extra):
     return r.json()
 
 
-# ----------------------------------------------------------------- Ausweis
+# -------------------------------------------------------------------- Badge
 def test_badge_requires_api_key(client):
     assert client.post("/api/badges", json={"visitor_name": "X"}).status_code == 401
 
@@ -71,8 +71,33 @@ def test_create_badge_with_photo_prints_and_returns_preview(client):
     assert "/v/" in data["qr_url"]
     preview = Image.open(io.BytesIO(base64.b64decode(data["preview_jpeg_base64"])))
     assert preview.size == (640, round(render.CARD_H * 640 / render.CARD_W))
-    # Gültig 8 Stunden ab jetzt
+    # Valid for 8 hours from now
     assert datetime.fromisoformat(data["valid_until"]) == NOW + timedelta(hours=8)
+    assert data["print_pdf_base64"] is None
+
+
+def test_robot_printing_returns_pdf_and_skips_backend_printer(client):
+    data = create(client, print=False, return_pdf=True)
+    assert data["print"]["sent"] is False
+    assert base64.b64decode(data["print_pdf_base64"]).startswith(b"%PDF")
+    assert client.get("/api/printer/outbox", headers=HEADERS).json() == []
+    r = client.post(f"/api/badges/{data['id']}/printed", json={"sent": True, "method": "robot-ipp", "detail": "ok", "job_id": 7},
+                    headers=HEADERS)
+    assert r.status_code == 200
+    info = client.get("/api/badges", headers=HEADERS).json()[0]["print_info"]
+    assert info == {"sent": True, "method": "robot-ipp", "detail": "ok", "job_id": 7}
+
+
+def test_printed_report_for_unknown_badge_is_404(client):
+    r = client.post("/api/badges/V-0000-0000/printed", json={"sent": True}, headers=HEADERS)
+    assert r.status_code == 404
+
+
+def test_printer_test_can_return_pdf_without_printing(client):
+    r = client.post("/api/printer/test", json={"print": False, "return_pdf": True}, headers=HEADERS).json()
+    assert r["sent"] is False and base64.b64decode(r["print_pdf_base64"]).startswith(b"%PDF")
+    assert client.get("/api/printer/outbox", headers=HEADERS).json() == []
+    assert client.post("/api/printer/test", headers=HEADERS).json()["sent"] is True
 
 
 def test_badge_without_photo_still_works(client):
@@ -98,22 +123,22 @@ def test_scan_page_shows_badge_and_logs_scan(client):
     data = create(client)
     token = data["qr_url"].rsplit("/", 1)[1]
     page = client.get(f"/v/{token}")
-    assert page.status_code == 200 and "Gültiger Besucherausweis" in page.text and "Max Mustermann" in page.text
+    assert page.status_code == 200 and "Valid visitor badge" in page.text and "Max Mustermann" in page.text
     listed = client.get("/api/badges", headers=HEADERS).json()
     assert listed[0]["scan_count"] == 1
-    assert "token" not in listed[0]  # Token nur im QR-Code, nicht in Listen
+    assert "token" not in listed[0]  # the token is only in the QR code, never in lists
 
 
 def test_unknown_token_is_invalid(client):
-    page = client.get("/v/nicht-vorhanden")
-    assert "Ungültig" in page.text
+    page = client.get("/v/does-not-exist")
+    assert "Invalid" in page.text
 
 
 def test_access_check_respects_zones(client):
     token = create(client)["qr_url"].rsplit("/", 1)[1]
-    ok = client.post("/api/access/check", json={"token": token, "door": "Warteraum"}, headers=HEADERS).json()
+    ok = client.post("/api/access/check", json={"token": token, "door": "Waiting room"}, headers=HEADERS).json()
     assert ok["allowed"] is True
-    denied = client.post("/api/access/check", json={"token": token, "door": "Serverraum"}, headers=HEADERS).json()
+    denied = client.post("/api/access/check", json={"token": token, "door": "Server room"}, headers=HEADERS).json()
     assert denied["allowed"] is False
     assert client.get("/api/badges", headers=HEADERS).json()[0]["scan_count"] == 2
 
@@ -125,11 +150,11 @@ def test_checkout_deletes_everything(client, tmp_path):
     r = client.post(f"/api/badges/{data['id']}/checkout", headers=HEADERS)
     assert r.status_code == 200
     assert client.get("/api/badges", headers=HEADERS).json() == []
-    assert client.get("/api/printer/outbox", headers=HEADERS).json() == []  # Vorschau mit Foto weg
+    assert client.get("/api/printer/outbox", headers=HEADERS).json() == []  # preview with photo is gone
     assert "Max Mustermann" not in (tmp_path / "badges.json").read_text(encoding="utf-8")
-    assert "Ungültig" in client.get(f"/v/{token}").text
+    assert "Invalid" in client.get(f"/v/{token}").text
     events = client.get("/api/badges/events", headers=HEADERS).json()
-    assert all("Max" not in e["event"] for e in events)  # Protokoll ohne Namen
+    assert all("Max" not in e["event"] for e in events)  # event log without names
 
 
 def test_expired_badges_are_purged(client):
@@ -150,27 +175,27 @@ def test_store_survives_restart(tmp_path):
     file = tmp_path / "b.json"
     s1 = BadgeStore(file)
     b = s1.create(visitor_name="A B", employee_id="", employee_name="", purpose="", company="C",
-                  zones=["Empfang"], now=NOW, valid_hours=8, has_photo=True)
+                  zones=["Reception"], now=NOW, valid_hours=8, has_photo=True)
     s2 = BadgeStore(file)
     assert s2.get(b.id).visitor_name == "A B"
     assert s2.by_token(b.token).id == b.id
 
 
-# --------------------------------------------------------------- Zeichnen
+# ------------------------------------------------------------------ Drawing
 def test_render_card_and_a4_page():
     card = render.render_card(visitor_name="Dr. Maximiliane Mustermann-Schneiderhausen", badge_id="V-1014-1234",
                               qr_url="http://x/v/abc", company="Hinterland Hack", host_name="Anna Schmidt",
-                              valid_until=NOW, zones=["Empfang", "Warteraum"], photo_jpeg=jpeg())
+                              valid_until=NOW, zones=["Reception", "Waiting room"], photo_jpeg=jpeg())
     assert card.size == (1011, 638)
     page = render.render_print_page(card)
-    assert page.size == (2480, 3508)  # A4 bei 300 dpi
+    assert page.size == (2480, 3508)  # A4 at 300 dpi
     pdf = render.to_pdf(page)
-    assert pdf.startswith(b"%PDF") and b"/MediaBox [ 0 0 595.2" in pdf  # 210 mm = 595,3 pt
+    assert pdf.startswith(b"%PDF") and b"/MediaBox [ 0 0 595.2" in pdf  # 210 mm = 595.3 pt
 
 
 # -------------------------------------------------------------------- IPP
 class FakeIppPrinter:
-    """Simulierter Drucker – antwortet wie der bizhub (Status ok, job-id 42)."""
+    """Simulated printer - answers like the bizhub (status ok, job-id 42)."""
 
     def __init__(self, status=0x0000):
         self.status = status
@@ -214,9 +239,9 @@ def test_ipp_print_job_encoding():
     assert body[:4] == b"\x02\x00\x00\x02"  # IPP 2.0, Print-Job
     assert b"ipp://192.168.0.233/ipp" in body
     assert b"application/pdf" in body and b"iso_a4_210x297mm" in body and b"print-scaling" in body
-    assert body.endswith(b"\x03%PDF-1.4 test")  # Dokument folgt direkt auf end-of-attributes
+    assert body.endswith(b"\x03%PDF-1.4 test")  # the document follows end-of-attributes directly
     status, attrs = ipp.parse_response(body[: body.index(b"%PDF")])
-    assert attrs["job-name"] == ["Besucherausweis V-1"]
+    assert attrs["job-name"] == ["Visitor badge V-1"]
     assert attrs["copies"] == [1]
 
 
@@ -225,13 +250,13 @@ def test_ipp_status_and_validate():
     p = make_printer(fake)
     s = p.status()
     assert s["reachable"] is True and s["model"] == "KONICA MINOLTA bizhub C361i" and s["pdf_supported"] is True
-    assert s["state"] == "bereit"
+    assert s["state"] == "idle"
     assert p.validate().sent is True
     assert fake.requests[-1][2:4] == b"\x00\x04"
 
 
 def test_ipp_error_falls_back_to_next_method():
-    fake = FakeIppPrinter(status=0x0506)  # nimmt keine Aufträge an
+    fake = FakeIppPrinter(status=0x0506)  # not accepting jobs
     p = make_printer(fake, methods=("ipp", "mock"))
     result = p.print_badge("V-2", b"%PDF", b"jpg", NOW)
     assert result.sent and result.method == "mock"
@@ -239,15 +264,15 @@ def test_ipp_error_falls_back_to_next_method():
 
 def test_unreachable_printer_reports_error():
     def down(request):
-        raise httpx.ConnectError("Verbindung abgelehnt")
+        raise httpx.ConnectError("Connection refused")
 
     cfg = replace(badge_settings, printer_methods=("ipp",))
     p = ipp.BadgePrinter(cfg, transport=httpx.MockTransport(down))
     result = p.print_badge("V-3", b"%PDF", b"", NOW)
-    assert not result.sent and "abgelehnt" in result.detail
+    assert not result.sent and "refused" in result.detail
 
 
 def test_ipp_uri_conversion():
     assert ipp.ipp_uri("http://192.168.0.233/ipp") == "ipp://192.168.0.233/ipp"
-    assert ipp.ipp_uri("https://drucker.local/ipp/print") == "ipps://drucker.local/ipp/print"
+    assert ipp.ipp_uri("https://printer.local/ipp/print") == "ipps://printer.local/ipp/print"
     assert ipp.ipp_uri("http://10.0.0.5:8631/ipp") == "ipp://10.0.0.5:8631/ipp"

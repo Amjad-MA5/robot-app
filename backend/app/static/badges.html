@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Besucherausweise</title>
+<title>Visitor badges</title>
 <style>
   :root {
     --bg: #f4f6fb; --card: #ffffff; --text: #14213d; --muted: #5c6784; --line: #e3e7f0;
@@ -51,43 +51,43 @@
 </head>
 <body>
 <header>
-  <h1>🪪 Besucherausweise</h1>
-  <a class="btn secondary" href="/">← Übersicht</a>
+  <h1>🪪 Visitor badges</h1>
+  <a class="btn secondary" href="/">← Overview</a>
   <span class="muted" id="info"></span>
 </header>
 <main>
   <section class="card">
-    <h2>Drucker</h2>
+    <h2>Printer (as seen from the backend)</h2>
     <table id="printer"><tr><td>Status</td><td>…</td></tr></table>
     <div class="row">
-      <button id="refreshPrinter" class="secondary">Status prüfen</button>
-      <button id="validate" class="secondary" title="Fragt den Drucker, ob er den Auftrag annehmen würde – ohne Papier">Auftrag prüfen (ohne Druck)</button>
-      <button id="testPrint">Testausweis drucken</button>
+      <button id="refreshPrinter" class="secondary">Check status</button>
+      <button id="validate" class="secondary" title="Asks the printer whether it would accept the job - no paper used">Validate job (no print)</button>
+      <button id="testPrint">Print test badge</button>
     </div>
-    <p class="muted">Druck per IPP direkt an den Drucker (kein Treiber nötig). Einstellung: <code>SR_PRINTER_URL</code>, <code>SR_PRINTER_METHODS</code>.</p>
+    <p class="muted">Printing over IPP straight to the printer (no driver needed). Settings: <code>SR_PRINTER_URL</code>, <code>SR_PRINTER_METHODS</code>. When the backend runs in the cloud it cannot reach the office printer - the robot then prints the badge itself.</p>
   </section>
 
   <section class="card">
-    <h2>Zutritt testen (wie ein Türleser)</h2>
-    <div class="row"><input id="token" placeholder="Token aus dem QR-Code (Teil nach /v/)"></div>
-    <div class="row"><input id="door" placeholder="Zone, z. B. Warteraum oder Labor"><button id="check">Prüfen</button></div>
+    <h2>Test access (like a door reader)</h2>
+    <div class="row"><input id="token" placeholder="Token from the QR code (part after /v/)"></div>
+    <div class="row"><input id="door" placeholder="Zone, e.g. Waiting room or Lab"><button id="check">Check</button></div>
     <div class="out" id="checkOut">—</div>
   </section>
 
   <section class="card wide">
-    <h2>Aktive Ausweise</h2>
-    <p class="muted">Fotos werden nie gespeichert. Beim Checkout – spätestens nach Ablauf der Gültigkeit – werden alle Daten des Besuchers gelöscht.</p>
+    <h2>Active badges</h2>
+    <p class="muted">Photos are never stored. On checkout - at the latest when the badge expires - all of the visitor's data is deleted.</p>
     <div class="list" id="badges"><span class="muted">—</span></div>
   </section>
 
   <section class="card">
-    <h2>Druck-Vorschau (Demo-Modus)</h2>
-    <p class="muted">Nur bei <code>SR_PRINTER_METHODS=mock</code>: hier erscheint, was gedruckt worden wäre.</p>
+    <h2>Print preview (demo mode)</h2>
+    <p class="muted">Only with <code>SR_PRINTER_METHODS=mock</code>: shows what would have been printed.</p>
     <div class="list preview" id="outbox"><span class="muted">—</span></div>
   </section>
 
   <section class="card">
-    <h2>Protokoll (ohne Personendaten)</h2>
+    <h2>Event log (no personal data)</h2>
     <div class="list" id="events"><span class="muted">—</span></div>
   </section>
 </main>
@@ -95,7 +95,7 @@
 const $ = (id) => document.getElementById(id);
 let key = "";
 try { key = localStorage.getItem("srApiKey") || ""; } catch (e) {}
-if (!key) { key = prompt("API-Key (SR_API_KEY)") || ""; try { localStorage.setItem("srApiKey", key); } catch (e) {} }
+if (!key) { key = prompt("API key (SR_API_KEY)") || ""; try { localStorage.setItem("srApiKey", key); } catch (e) {} }
 
 async function api(path, options = {}) {
   const res = await fetch(path, { ...options, headers: { "Content-Type": "application/json", "X-Api-Key": key, ...(options.headers || {}) } });
@@ -105,7 +105,7 @@ async function api(path, options = {}) {
   return body;
 }
 const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const fmt = (iso) => new Date(iso).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+const fmt = (iso) => new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
 async function loadPrinter() {
   try {
@@ -113,38 +113,38 @@ async function loadPrinter() {
     const ok = s.reachable === true;
     const rows = [
       ["Status", s.reachable === null || s.reachable === undefined
-        ? `<span class="pill warn">nicht geprüft (kein IPP)</span>`
-        : ok ? `<span class="pill ok">erreichbar · ${esc(s.state)}</span>` : `<span class="pill err">nicht erreichbar</span>`],
-      ["Modell", esc(s.model || "–")],
-      ["Adresse", esc(s.url || "–")],
-      ["Druckwege", esc((s.methods || []).join(" → "))],
-      ["Nimmt Aufträge an", s.accepting_jobs === true ? "ja" : s.accepting_jobs === false ? "nein" : "–"],
-      ["PDF-Direktdruck", s.pdf_supported ? "ja" : "–"],
+        ? `<span class="pill warn">not checked (IPP disabled)</span>`
+        : ok ? `<span class="pill ok">reachable · ${esc(s.state)}</span>` : `<span class="pill err">not reachable</span>`],
+      ["Model", esc(s.model || "–")],
+      ["Address", esc(s.url || "–")],
+      ["Print methods", esc((s.methods || []).join(" → "))],
+      ["Accepting jobs", s.accepting_jobs === true ? "yes" : s.accepting_jobs === false ? "no" : "–"],
+      ["Direct PDF printing", s.pdf_supported ? "yes" : "–"],
     ];
-    if (s.detail) rows.push(["Hinweis", esc(s.detail)]);
+    if (s.detail) rows.push(["Note", esc(s.detail)]);
     $("printer").innerHTML = rows.map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join("");
-  } catch (e) { $("printer").innerHTML = `<tr><td>Fehler</td><td>${esc(e.message)}</td></tr>`; }
+  } catch (e) { $("printer").innerHTML = `<tr><td>Error</td><td>${esc(e.message)}</td></tr>`; }
 }
 
 async function loadBadges() {
   try {
     const list = await api("/api/badges");
-    $("info").textContent = `${list.length} aktive${list.length === 1 ? "r" : ""} Ausweis${list.length === 1 ? "" : "e"}`;
-    if (!list.length) { $("badges").innerHTML = '<span class="muted">Keine aktiven Ausweise.</span>'; return; }
+    $("info").textContent = `${list.length} active badge${list.length === 1 ? "" : "s"}`;
+    if (!list.length) { $("badges").innerHTML = '<span class="muted">No active badges.</span>'; return; }
     $("badges").innerHTML = list.map((b) => {
       const p = b.print_info || {};
-      const pill = p.sent ? `<span class="pill ok">gedruckt (${esc(p.method)})</span>` : `<span class="pill warn">${esc(p.detail || "nicht gedruckt")}</span>`;
+      const pill = p.sent ? `<span class="pill ok">printed (${esc(p.method)})</span>` : `<span class="pill warn">${esc(p.detail || "not printed")}</span>`;
       return `<div class="item"><div class="qr" data-qr="${esc(b.id)}"></div>
         <div class="grow"><b>${esc(b.visitor_name)}</b> · ${esc(b.id)} ${b.has_photo ? "📷" : ""}<br>
-        <span class="muted">Gastgeber: ${esc(b.employee_name || "–")} · seit ${fmt(b.created_at)} · gültig bis ${fmt(b.valid_until)} · ${b.scan_count} Scan(s)</span><br>${pill}</div>
-        <button class="danger" data-checkout="${esc(b.id)}">Checkout &amp; Daten löschen</button></div>`;
+        <span class="muted">Host: ${esc(b.employee_name || "–")} · since ${fmt(b.created_at)} · valid until ${fmt(b.valid_until)} · ${b.scan_count} scan(s)</span><br>${pill}</div>
+        <button class="danger" data-checkout="${esc(b.id)}">Check out &amp; delete data</button></div>`;
     }).join("");
     for (const el of document.querySelectorAll("[data-qr]")) {
       api(`/api/badges/${encodeURIComponent(el.dataset.qr)}/qr.svg`).then((svg) => { el.innerHTML = svg; }).catch(() => {});
     }
     for (const el of document.querySelectorAll("[data-checkout]")) {
       el.onclick = async () => {
-        if (!confirm("Besuch beenden und alle Daten dieses Besuchers löschen?")) return;
+        if (!confirm("End this visit and delete all of this visitor's data?")) return;
         try { await api(`/api/badges/${encodeURIComponent(el.dataset.checkout)}/checkout`, { method: "POST" }); refresh(); } catch (e) { alert(e.message); }
       };
     }
@@ -155,7 +155,7 @@ async function loadOutbox() {
   try {
     const list = await api("/api/printer/outbox");
     $("outbox").innerHTML = list.length
-      ? list.map((m) => `<div><span class="muted">${fmt(m.time)} · ${esc(m.badge_id)}</span><img alt="Ausweis" src="data:image/jpeg;base64,${m.preview_jpeg_base64}"></div>`).join("")
+      ? list.map((m) => `<div><span class="muted">${fmt(m.time)} · ${esc(m.badge_id)}</span><img alt="Badge" src="data:image/jpeg;base64,${m.preview_jpeg_base64}"></div>`).join("")
       : '<span class="muted">—</span>';
   } catch (e) { $("outbox").innerHTML = `<span class="muted">${esc(e.message)}</span>`; }
 }
@@ -173,17 +173,17 @@ function refresh() { loadBadges(); loadOutbox(); loadEvents(); }
 
 $("refreshPrinter").onclick = loadPrinter;
 $("validate").onclick = async () => {
-  try { const r = await api("/api/printer/validate", { method: "POST" }); alert((r.ok ? "✔ Drucker würde den Auftrag annehmen: " : "✖ ") + r.detail); }
+  try { const r = await api("/api/printer/validate", { method: "POST" }); alert((r.ok ? "✔ The printer would accept the job: " : "✖ ") + r.detail); }
   catch (e) { alert(e.message); }
 };
 $("testPrint").onclick = async () => {
-  if (!confirm("Einen Testausweis (ohne Foto) auf dem Drucker ausdrucken?")) return;
-  try { const r = await api("/api/printer/test", { method: "POST" }); alert((r.sent ? "✔ Gesendet über " + r.method : "✖ Fehler") + (r.detail ? ": " + r.detail : "")); refresh(); }
+  if (!confirm("Print a test badge (without photo) on the printer?")) return;
+  try { const r = await api("/api/printer/test", { method: "POST" }); alert((r.sent ? "✔ Sent via " + r.method : "✖ Error") + (r.detail ? ": " + r.detail : "")); refresh(); }
   catch (e) { alert(e.message); }
 };
 $("check").onclick = async () => {
   try { const r = await api("/api/access/check", { method: "POST", body: JSON.stringify({ token: $("token").value.trim(), door: $("door").value.trim() }) });
-    $("checkOut").textContent = (r.allowed ? "✔ Zutritt erlaubt" : "✖ Kein Zutritt") + "\n" + JSON.stringify(r, null, 2); refresh(); }
+    $("checkOut").textContent = (r.allowed ? "✔ Access granted" : "✖ Access denied") + "\n" + JSON.stringify(r, null, 2); refresh(); }
   catch (e) { $("checkOut").textContent = e.message; }
 };
 

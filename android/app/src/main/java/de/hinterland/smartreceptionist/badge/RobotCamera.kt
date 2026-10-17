@@ -35,25 +35,25 @@ import java.io.ByteArrayOutputStream
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-/** Kamera-Einstellungen aus dem Admin-Bereich. */
+/** Camera settings from the admin area. */
 data class CameraConfig(
-    /** Drehung in Grad (0/90/180/270), -1 = automatisch je nach Kameraquelle */
+    /** Rotation in degrees (0/90/180/270), -1 = automatic depending on the camera source */
     val rotation: Int = -1,
-    /** "auto" = erst geteilter Videostrom des Roboters, dann Android-Kamera; "shared" / "camera2" = nur diese */
+    /** "auto" = robot's shared video stream first, then the Android camera; "shared" / "camera2" = only that one */
     val source: String = "auto",
 )
 
 /**
- * Kamera des Nova – zwei Wege, laut Orionstar-Doku (RobotAPI → „摄像头“):
+ * Camera of the robot - two ways, following the Orionstar RobotAPI docs (section "Camera"):
  *
- * 1. **Geteilter Videostrom** (SurfaceShareApi): Die Bilder kommen aus dem Vision-SDK des Roboters.
- *    Vorteil: Personenerkennung und Begrüßung laufen ungestört weiter. 640 × 480, YUV.
- * 2. **Android-Kamera** (Camera2): Falls der geteilte Strom nicht verfügbar ist. Die Personenerkennung
- *    pausiert dann kurz und startet nach dem Freigeben wieder. Auf Querformat-Robotern ist das Bild
- *    um 90° gedreht – deshalb standardmäßig 270° zurückdrehen (im Admin-Bereich änderbar).
+ * 1. **Shared video stream** (SurfaceShareApi): frames come from the robot's VisionSDK, so person
+ *    detection and greeting keep working. 640 x 480, YUV.
+ * 2. **Android camera** (Camera2): if the shared stream is not available. Person detection pauses
+ *    and comes back after the camera is released. On landscape robots the image is rotated by 90°,
+ *    so it is rotated back by 270° by default (can be changed in the admin area).
  *
- * Klappt beides nicht (keine Berechtigung, Kamera belegt …), liefert [open] false und der Ausweis
- * wird ohne Foto gedruckt.
+ * If neither works (no permission, camera busy ...), [open] returns false and the badge is
+ * printed without a photo.
  */
 class RobotCamera(
     context: Context,
@@ -77,7 +77,7 @@ class RobotCamera(
     @Volatile private var lastFrameAt = 0L
     @Volatile private var failed = false
 
-    // ----------------------------------------------------------------- öffnen
+    // -------------------------------------------------------------------- Open
     override suspend fun open(): Boolean {
         close()
         val cfg = config()
@@ -89,7 +89,7 @@ class RobotCamera(
             if (openCamera2(cfg) && awaitFirstFrame(4_000)) return true
             close()
         }
-        Log.w(TAG, "Keine Kamera verfügbar – Ausweis ohne Foto")
+        Log.w(TAG, "No camera available - badge without photo")
         return false
     }
 
@@ -112,7 +112,7 @@ class RobotCamera(
         return r
     }
 
-    /** Weg 1: geteilter Videostrom aus dem Vision-SDK des Roboters */
+    /** Way 1: shared video stream from the robot's VisionSDK */
     private fun openShared(cfg: CameraConfig): Boolean = runCatching {
         failed = false
         rotation = if (cfg.rotation >= 0) cfg.rotation else 0
@@ -122,23 +122,23 @@ class RobotCamera(
         shareBean = bean
         val code = SurfaceShareApi.getInstance().requestImageFrame(r.surface, bean, object : SurfaceShareListener() {
             override fun onError(error: Int, message: String?) {
-                Log.w(TAG, "Geteilter Kamerastrom: Fehler $error $message")
+                Log.w(TAG, "Shared camera stream: error $error $message")
                 failed = true
             }
         })
         source = "shared-stream"
-        Log.i(TAG, "Geteilter Kamerastrom angefragt (Ergebnis $code)")
+        Log.i(TAG, "Shared camera stream requested (result $code)")
         true
     }.getOrElse {
-        Log.w(TAG, "Geteilter Kamerastrom nicht verfügbar", it)
+        Log.w(TAG, "Shared camera stream not available", it)
         false
     }
 
-    /** Weg 2: normale Android-Kamera (Frontkamera bevorzugt) */
+    /** Way 2: regular Android camera (front camera preferred) */
     @SuppressLint("MissingPermission")
     private suspend fun openCamera2(cfg: CameraConfig): Boolean {
         if (appContext.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            Log.w(TAG, "Kamera-Berechtigung fehlt")
+            Log.w(TAG, "Camera permission missing")
             return false
         }
         return runCatching {
@@ -154,7 +154,7 @@ class RobotCamera(
                 ?.toList()
                 .orEmpty()
             val size = sizes.minByOrNull { abs(it.width * it.height - 640 * 480) + abs(it.width * 3 - it.height * 4) } ?: Size(640, 480)
-            // Querformat-Roboter: Bild steht laut Doku um 90° falsch → 270° zurückdrehen
+            // Landscape robot: per the docs the image is off by 90° -> rotate back by 270°
             rotation = if (cfg.rotation >= 0) cfg.rotation else 270
             val h = startThread()
             val r = newReader(size.width, size.height, h)
@@ -185,7 +185,7 @@ class RobotCamera(
                 }
 
                 override fun onError(camera: CameraDevice, error: Int) {
-                    Log.w(TAG, "Camera2-Fehler $error")
+                    Log.w(TAG, "Camera2 error $error")
                     camera.close()
                     failed = true
                 }
@@ -193,12 +193,12 @@ class RobotCamera(
             source = "camera2:$id ${size.width}x${size.height}"
             true
         }.getOrElse {
-            Log.w(TAG, "Camera2 nicht verfügbar", it)
+            Log.w(TAG, "Camera2 not available", it)
             false
         }
     }
 
-    // ----------------------------------------------------------------- Bilder
+    // ------------------------------------------------------------------ Frames
     private fun onImage(r: ImageReader) {
         val image = runCatching { r.acquireLatestImage() }.getOrNull() ?: return
         try {
@@ -207,7 +207,7 @@ class RobotCamera(
             lastFrameAt = now
             yuvToBitmap(image, rotation)?.let { _preview.value = it }
         } catch (t: Throwable) {
-            Log.w(TAG, "Bild konnte nicht umgewandelt werden", t)
+            Log.w(TAG, "Could not convert frame", t)
         } finally {
             image.close()
         }
@@ -222,7 +222,7 @@ class RobotCamera(
         }
     }
 
-    // ---------------------------------------------------------------- freigeben
+    // ----------------------------------------------------------------- Release
     override fun close() {
         shareBean?.let { bean -> runCatching { SurfaceShareApi.getInstance().abandonImageFrame(bean) } }
         shareBean = null
@@ -243,7 +243,7 @@ class RobotCamera(
         private const val TAG = "RobotCamera"
         private const val FRAME_INTERVAL_MS = 120L
 
-        /** YUV_420_888 → NV21 → JPEG → Bitmap (einfach und auf allen Geräten stabil). */
+        /** YUV_420_888 -> NV21 -> JPEG -> Bitmap (simple and stable on all devices). */
         fun yuvToBitmap(image: Image, rotation: Int): Bitmap? {
             val width = image.width
             val height = image.height
@@ -287,7 +287,7 @@ class RobotCamera(
             return out
         }
 
-        /** Mittiger Ausschnitt im Hochformat 3:4 – wie ein Passbild, leicht nach oben versetzt. */
+        /** Centred 3:4 portrait crop - like a passport photo, slightly shifted up. */
         fun cropToPortrait(src: Bitmap): Bitmap {
             val targetRatio = 3f / 4f
             val ratio = src.width.toFloat() / src.height

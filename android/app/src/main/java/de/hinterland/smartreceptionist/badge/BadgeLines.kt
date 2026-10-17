@@ -1,6 +1,6 @@
 package de.hinterland.smartreceptionist.badge
 
-/** Sätze rund um Foto und Besucherausweis (Deutsch + Englisch). */
+/** Everything the robot says around the photo and the visitor badge (English + German). */
 interface BadgeLines {
     val askPhoto: String
     val photoPrivacy: String

@@ -38,15 +38,20 @@ data class AppSettings(
     val deliveryPhoto: Boolean = false,
     /** PIN für den Admin-Bereich */
     val adminPin: String = "1234",
-    /** Besucherausweis mit Foto drucken, wenn ein Gast mit Termin ankommt */
+    /** Print a visitor badge with photo when a guest with an appointment arrives */
     val badgeEnabled: Boolean = true,
-    /** Kamera-Drehung in Grad (0/90/180/270), -1 = automatisch */
+    /**
+     * IPP address of the office printer. The robot sends the badge there itself, because a cloud
+     * backend cannot reach the office network. Empty = the backend prints (backend in the office network).
+     */
+    val printerUrl: String = "http://192.168.0.233/ipp",
+    /** Camera rotation in degrees (0/90/180/270), -1 = automatic */
     val cameraRotation: Int = -1,
-    /** "auto", "shared" (Videostrom des Roboters) oder "camera2" (Android-Kamera) */
+    /** "auto", "shared" (robot's video stream) or "camera2" (Android camera) */
     val cameraSource: String = "auto",
-    /** Vorschau spiegeln, damit sich der Gast wie im Spiegel sieht */
+    /** Mirror the preview so the guest sees themselves like in a mirror */
     val cameraMirror: Boolean = true,
-    /** Wo der Ausweis abgeholt wird, z. B. "am Drucker neben dem Empfang" (leer = Standardtext) */
+    /** Where to pick up the badge, e.g. "at the printer next to reception" (empty = default text) */
     val badgePickupHint: String = "",
     /** Im Warteraum eine kurze Geschichte über die Founders Foundation anbieten */
     val waitingStory: Boolean = true,
@@ -78,6 +83,7 @@ data class AppSettings(
                 deliveryPhoto = p.getBoolean("deliveryPhoto", d.deliveryPhoto),
                 adminPin = p.getString("adminPin", d.adminPin) ?: d.adminPin,
                 badgeEnabled = p.getBoolean("badgeEnabled", d.badgeEnabled),
+                printerUrl = p.getString("printerUrl", d.printerUrl) ?: d.printerUrl,
                 cameraRotation = p.getInt("cameraRotation", d.cameraRotation),
                 cameraSource = p.getString("cameraSource", d.cameraSource) ?: d.cameraSource,
                 cameraMirror = p.getBoolean("cameraMirror", d.cameraMirror),
@@ -106,6 +112,7 @@ data class AppSettings(
                 .putBoolean("deliveryPhoto", s.deliveryPhoto)
                 .putString("adminPin", s.adminPin.trim())
                 .putBoolean("badgeEnabled", s.badgeEnabled)
+                .putString("printerUrl", s.printerUrl.trim())
                 .putInt("cameraRotation", s.cameraRotation)
                 .putString("cameraSource", s.cameraSource)
                 .putBoolean("cameraMirror", s.cameraMirror)

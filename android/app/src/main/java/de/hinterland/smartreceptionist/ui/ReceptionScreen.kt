@@ -142,7 +142,7 @@ fun ReceptionScreen(state: UiState, lines: Lines, actions: ReceptionActions, cam
                 verticalArrangement = Arrangement.Center,
             ) {
                 when {
-                    // Ausweisfoto: Besucher sieht sich selbst (gespiegelt wie im Spiegel) statt des Gesichts
+                    // Badge photo: the visitor sees themselves (mirrored) instead of the robot face
                     state.photoMode == PhotoMode.LIVE ->
                         CameraView(cameraFrame, state.mirrorPreview, state.countdown, Modifier.weight(1f, fill = false))
                     state.photoMode == PhotoMode.REVIEW && state.photo != null ->
@@ -306,7 +306,7 @@ private fun ConversationPanel(state: UiState, lines: Lines, actions: ReceptionAc
             Spacer(Modifier.height(8.dp))
             JpegImage(
                 jpeg,
-                contentDescription = "Besucherausweis",
+                contentDescription = "Visitor badge",
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1011f / 638f)
@@ -356,7 +356,7 @@ private fun ConversationPanel(state: UiState, lines: Lines, actions: ReceptionAc
     }
 }
 
-/** Live-Kamerabild mit Oval als Hilfe für die Kopfposition und Countdown 3 – 2 – 1. */
+/** Live camera image with an oval as a guide for the head position and a 3 - 2 - 1 countdown. */
 @Composable
 private fun CameraView(frame: Bitmap?, mirror: Boolean, countdown: Int?, modifier: Modifier = Modifier) {
     Box(
@@ -376,7 +376,7 @@ private fun CameraView(frame: Bitmap?, mirror: Boolean, countdown: Int?, modifie
             )
         } else {
         }
-        // Oval: hier soll das Gesicht sein
+        // Oval: where the face should be
         Canvas(Modifier.fillMaxSize()) {
             val ovalW = size.width * 0.62f
             val ovalH = size.height * 0.58f
@@ -403,12 +403,12 @@ private fun CameraView(frame: Bitmap?, mirror: Boolean, countdown: Int?, modifie
     }
 }
 
-/** Das aufgenommene Foto zur Kontrolle (ungespiegelt – so kommt es auf den Ausweis). */
+/** The photo for review (not mirrored - this is how it appears on the badge). */
 @Composable
 private fun PhotoView(jpeg: ByteArray, modifier: Modifier = Modifier) {
     JpegImage(
         jpeg,
-        contentDescription = "Ihr Foto",
+        contentDescription = "Your photo",
         contentScale = ContentScale.Crop,
         modifier = modifier
             .fillMaxWidth()

@@ -1,8 +1,8 @@
-"""Ablage der aktiven Besucherausweise – bewusst sparsam (Datenschutz).
+"""Storage for active visitor badges - deliberately minimal (privacy).
 
-Gespeichert wird nur, was für Einlass und Rückverfolgung während des Besuchs nötig ist:
-Name, Gastgeber, Gültigkeit, Zonen und die Scan-Protokolle. KEIN Foto.
-Beim Checkout oder nach Ablauf der Gültigkeit wird der Eintrag vollständig gelöscht.
+Only what is needed for access and traceability during the visit is stored:
+name, host, validity, zones and the scan log. NEVER the photo.
+On checkout or when the badge expires, the entry is deleted completely.
 """
 from __future__ import annotations
 
@@ -56,11 +56,11 @@ class BadgeStore:
         self._file = file
         self._lock = threading.RLock()
         self._badges: dict[str, Badge] = {}
-        # Protokoll ohne Personendaten (nur Ausweis-IDs und Ereignisse)
+        # Event log without personal data (badge IDs and events only)
         self.events: list[dict] = []
         self._load()
 
-    # --------------------------------------------------------------- Persistenz
+    # ---------------------------------------------------------------- Persistence
     def _load(self) -> None:
         if not self._file or not self._file.exists():
             return
@@ -69,8 +69,8 @@ class BadgeStore:
             for item in raw.get("badges", []):
                 badge = Badge.model_validate(item)
                 self._badges[badge.id] = badge
-        except Exception as exc:  # beschädigte Datei → lieber leer starten
-            log.warning("Ausweis-Datei nicht lesbar (%s) – starte leer", exc)
+        except Exception as exc:  # corrupt file -> start empty rather than crash
+            log.warning("Badge file unreadable (%s) - starting empty", exc)
 
     def _save(self) -> None:
         if not self._file:
@@ -81,7 +81,7 @@ class BadgeStore:
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
         tmp.replace(self._file)
 
-    # ------------------------------------------------------------------ Ablauf
+    # ------------------------------------------------------------------ Lifecycle
     def _new_id(self, now: datetime) -> str:
         while True:
             badge_id = f"V-{now:%m%d}-{secrets.randbelow(9000) + 1000}"
@@ -104,7 +104,7 @@ class BadgeStore:
         with self._lock:
             end_of_day = now.replace(hour=23, minute=59, second=0, microsecond=0)
             valid_until = min(now + timedelta(hours=valid_hours), end_of_day)
-            if valid_until <= now:  # kurz vor Mitternacht trotzdem eine Stunde Gültigkeit
+            if valid_until <= now:  # shortly before midnight: still one hour of validity
                 valid_until = now + timedelta(hours=1)
             badge = Badge(
                 id=self._new_id(now),
@@ -120,7 +120,7 @@ class BadgeStore:
                 has_photo=has_photo,
             )
             self._badges[badge.id] = badge
-            self._event(now, badge.id, "ausgestellt")
+            self._event(now, badge.id, "issued")
             self._save()
             return badge
 
@@ -145,27 +145,27 @@ class BadgeStore:
     def record_scan(self, badge: Badge, event: ScanEvent) -> None:
         with self._lock:
             badge.scans.append(event)
-            del badge.scans[:-50]  # nicht unbegrenzt wachsen
+            del badge.scans[:-50]  # do not grow forever
             self._event(event.time, badge.id, f"{event.kind} {event.door}".strip()
                         + ("" if event.allowed is None else (" ✔" if event.allowed else " ✖")))
             self._save()
 
     def checkout(self, badge_id: str, now: datetime) -> bool:
-        """Besuch beendet → Ausweis und alle Daten dazu löschen."""
+        """Visit finished -> delete the badge and all of its data."""
         with self._lock:
             if self._badges.pop(badge_id, None) is None:
                 return False
-            self._event(now, badge_id, "ausgecheckt, Daten gelöscht")
+            self._event(now, badge_id, "checked out, data deleted")
             self._save()
             return True
 
     def purge_expired(self, now: datetime) -> list[str]:
-        """Abgelaufene Ausweise vollständig löschen. Liefert die gelöschten IDs."""
+        """Delete expired badges completely. Returns the deleted IDs."""
         with self._lock:
             expired = [b.id for b in self._badges.values() if not b.is_valid(now)]
             for badge_id in expired:
                 del self._badges[badge_id]
-                self._event(now, badge_id, "abgelaufen, Daten gelöscht")
+                self._event(now, badge_id, "expired, data deleted")
             if expired:
                 self._save()
             return expired

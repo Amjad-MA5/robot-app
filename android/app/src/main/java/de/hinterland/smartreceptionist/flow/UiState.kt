@@ -15,7 +15,7 @@ data class TextInput(val kind: InputKind, val hint: String)
 
 data class Summary(val visitor: String, val employee: String, val whenText: String)
 
-/** Ausweisfoto: LIVE = Kamerabild (Besucher sieht sich selbst), REVIEW = aufgenommenes Foto */
+/** Badge photo: LIVE = camera image (the visitor sees themselves), REVIEW = the photo just taken */
 enum class PhotoMode { LIVE, REVIEW }
 
 data class UiState(
@@ -38,16 +38,16 @@ data class UiState(
     val showStop: Boolean = false,
     val backendOk: Boolean? = null,
     val robotOk: Boolean = false,
-    // ---- Besucherausweis (nur während des Foto-/Druckschritts gesetzt)
-    /** Statt des Gesichts das Kamerabild bzw. das aufgenommene Foto zeigen */
+    // ---- Visitor badge (only set during the photo/print step)
+    /** Show the camera image or the photo instead of the face */
     val photoMode: PhotoMode? = null,
-    /** Aufgenommenes Foto (JPEG) zur Kontrolle durch den Besucher */
+    /** Photo just taken (JPEG) so the visitor can check it */
     val photo: ByteArray? = null,
-    /** Countdown vor dem Auslösen (3, 2, 1; 0 = Blitz) */
+    /** Countdown before the shot (3, 2, 1; 0 = flash) */
     val countdown: Int? = null,
-    /** Kamerabild spiegeln (wie ein Spiegel) */
+    /** Mirror the camera image (like a mirror) */
     val mirrorPreview: Boolean = true,
-    /** Vorschau des fertigen Ausweises (JPEG) */
+    /** Preview of the finished badge (JPEG) */
     val badgePreview: ByteArray? = null,
 )
 

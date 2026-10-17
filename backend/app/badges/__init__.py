@@ -1,13 +1,15 @@
-"""Besucherausweis: Foto + Name + ID + QR-Code → Ausdruck am Firmendrucker.
+"""Visitor badge: photo + name + ID + QR code -> printout on the company printer.
 
-Ablauf:
-  1. Roboter macht (mit Einverständnis) ein Foto und schickt es mit Namen an POST /api/badges.
-  2. Das Backend legt einen Ausweis an (Ausweis-ID + zufälliger QR-Token), zeichnet die Karte
-     und schickt sie per IPP an den Drucker (Konica Minolta bizhub, http://192.168.0.233/ipp).
-  3. Das Foto wird nie auf die Festplatte geschrieben und nach dem Druck verworfen.
-  4. Beim Checkout oder spätestens nach Ablauf der Gültigkeit werden alle Daten gelöscht.
+Flow:
+  1. The robot takes a photo (only with consent) and sends it with the name to POST /api/badges.
+  2. The backend creates a badge (badge ID + random QR token) and draws the card.
+  3. Printing over IPP (Konica Minolta bizhub, http://192.168.0.233/ipp):
+     - the robot sends the PDF to the printer itself (return_pdf=true, print=false) - needed when
+       the backend runs in the cloud and cannot reach the office network, or
+     - the backend prints itself when it runs inside the office network (print=true).
+  4. The photo is never written to disk and is discarded after rendering.
+  5. On checkout, or at the latest when the badge expires, all data is deleted.
 
-Der QR-Code enthält keine persönlichen Daten, nur einen zufälligen Token. Beim Scannen
-(GET /v/<token>) wird der Scan protokolliert; Türleser können über POST /api/access/check
-prüfen, ob der Ausweis für eine Zone gilt („Zugang je nach Berechtigung“).
+The QR code contains no personal data, only a random token. Scanning it (GET /v/<token>) is
+logged; door readers can call POST /api/access/check to see whether the badge is valid for a zone.
 """

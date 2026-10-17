@@ -1,7 +1,7 @@
-"""Zeichnet den Besucherausweis (Pillow) – als Karte und als druckfertige A4-Seite (PDF).
+"""Draws the visitor badge (Pillow) - as a card and as a print-ready A4 page (PDF).
 
-Die Karte hat Scheckkartenformat (ID-1, 85,6 × 54 mm) bei 300 dpi. Auf der A4-Seite liegt sie
-in Originalgröße mit gestrichelter Schnittlinie – gedruckt wird ohne Skalierung.
+The card has credit card size (ID-1, 85.6 x 54 mm) at 300 dpi. On the A4 page it is placed at
+its original size with a dashed cutting line - it is printed without scaling.
 """
 from __future__ import annotations
 
@@ -39,9 +39,30 @@ _FONT_CANDIDATES = {
 }
 _font_cache: dict[tuple[int, bool], ImageFont.FreeTypeFont | ImageFont.ImageFont] = {}
 
+LABELS = {
+    "en": {
+        "header": "VISITOR", "host": "Host", "valid": "Valid until", "access": "Access", "no_photo": "no photo",
+        "hint": [
+            "Your visitor badge - please cut along the dashed line and wear it visibly.",
+            "Your data and photo are deleted automatically after your visit. Please return the badge when you leave.",
+        ],
+    },
+    "de": {
+        "header": "BESUCHER", "host": "Gastgeber", "valid": "Gültig bis", "access": "Zutritt", "no_photo": "ohne Foto",
+        "hint": [
+            "Ihr Besucherausweis - bitte entlang der gestrichelten Linie ausschneiden und gut sichtbar tragen.",
+            "Ihre Daten und Ihr Foto werden nach dem Besuch automatisch gelöscht. Bitte geben Sie den Ausweis beim Gehen ab.",
+        ],
+    },
+}
+
+
+def labels(language: str) -> dict:
+    return LABELS.get(language, LABELS["en"])
+
 
 def font(size: int, bold: bool = False):
-    """Systemschrift (DejaVu/Arial …), sonst die in Pillow eingebaute skalierbare Schrift."""
+    """System font (DejaVu/Arial ...), otherwise the scalable font built into Pillow."""
     key = (size, bold)
     if key not in _font_cache:
         loaded = None
@@ -60,7 +81,7 @@ def _text_width(draw: ImageDraw.ImageDraw, text: str, f) -> float:
 
 
 def _fit(draw: ImageDraw.ImageDraw, text: str, max_width: float, start: int, minimum: int, bold: bool = False):
-    """Größte Schriftgröße, bei der [text] in [max_width] passt (sonst kürzen mit …)."""
+    """Largest font size at which [text] fits into [max_width] (otherwise shorten with an ellipsis)."""
     size = start
     while size > minimum and _text_width(draw, text, font(size, bold)) > max_width:
         size -= 2
@@ -73,7 +94,7 @@ def _fit(draw: ImageDraw.ImageDraw, text: str, max_width: float, start: int, min
 
 
 def _wrap_name(draw: ImageDraw.ImageDraw, name: str, max_width: float):
-    """Name einzeilig groß – oder auf zwei Zeilen verteilt, wenn er sehr lang ist."""
+    """Name in one big line - or split over two lines when it is very long."""
     one_line, f = _fit(draw, name, max_width, 64, 44, bold=True)
     if not one_line.endswith("…"):
         return [one_line], f
@@ -97,7 +118,7 @@ def _initials(name: str) -> str:
     return "".join(p[0].upper() for p in parts[:2]) or "?"
 
 
-def _photo_box(photo_jpeg: bytes | None, name: str, size: tuple[int, int]) -> Image.Image:
+def _photo_box(photo_jpeg: bytes | None, name: str, size: tuple[int, int], no_photo_label: str) -> Image.Image:
     w, h = size
     if photo_jpeg:
         try:
@@ -105,7 +126,7 @@ def _photo_box(photo_jpeg: bytes | None, name: str, size: tuple[int, int]) -> Im
             img = ImageOps.exif_transpose(img).convert("RGB")
             return ImageOps.fit(img, (w, h), method=Image.Resampling.LANCZOS, centering=(0.5, 0.4))
         except Exception:
-            pass  # kaputtes Bild → Platzhalter
+            pass  # broken image -> placeholder
     box = Image.new("RGB", (w, h), LIGHT)
     d = ImageDraw.Draw(box)
     initials = _initials(name)
@@ -113,7 +134,7 @@ def _photo_box(photo_jpeg: bytes | None, name: str, size: tuple[int, int]) -> Im
     tw = d.textlength(initials, font=f)
     d.text(((w - tw) / 2, h * 0.28), initials, font=f, fill=(150, 162, 182))
     small = font(24)
-    label = "ohne Foto"
+    label = no_photo_label
     d.text(((w - d.textlength(label, font=small)) / 2, h * 0.78), label, font=small, fill=MUTED)
     return box
 
@@ -135,23 +156,23 @@ def render_card(
     valid_until: datetime,
     zones: list[str],
     photo_jpeg: bytes | None,
-    language: str = "de",
+    language: str = "en",
 ) -> Image.Image:
-    de = language != "en"
+    lbl = labels(language)
     card = Image.new("RGB", (CARD_W, CARD_H), "white")
     d = ImageDraw.Draw(card)
 
-    # Kopfzeile
+    # Header
     band = 118
     d.rectangle([0, 0, CARD_W, band], fill=NAVY)
-    d.text((40, 30), "BESUCHER · VISITOR" if de else "VISITOR · BESUCHER", font=font(46, True), fill="white")
+    d.text((40, 30), lbl["header"], font=font(46, True), fill="white")
     comp, cf = _fit(d, company, 330, 30, 20)
     d.text((CARD_W - 40 - d.textlength(comp, font=cf), 44), comp, font=cf, fill=(190, 210, 235))
     d.rectangle([0, CARD_H - 22, CARD_W, CARD_H], fill=TEAL)
 
-    # Foto (3:4)
+    # Photo (3:4)
     px, py, pw, ph = 40, band + 32, 270, 360
-    photo = _photo_box(photo_jpeg, visitor_name, (pw, ph))
+    photo = _photo_box(photo_jpeg, visitor_name, (pw, ph), lbl["no_photo"])
     mask = Image.new("L", (pw, ph), 0)
     ImageDraw.Draw(mask).rounded_rectangle([0, 0, pw - 1, ph - 1], radius=22, fill=255)
     card.paste(photo, (px, py), mask)
@@ -167,17 +188,17 @@ def render_card(
         y += int(nf.size * 1.18)
     y += 14
 
-    # Details (links vom QR-Code)
+    # Details (left of the QR code)
     qr_size = 196
     qr_x, qr_y = CARD_W - 40 - qr_size, CARD_H - 22 - 20 - qr_size
     detail_width = qr_x - 20 - x
     label_f = font(22)
     details = [
-        ("Gastgeber · Host" if de else "Host · Gastgeber", host_name or "–"),
-        ("Gültig bis · Valid until" if de else "Valid until · Gültig bis", f"{valid_until:%d.%m.%Y, %H:%M}"),
+        (lbl["host"], host_name or "–"),
+        (lbl["valid"], f"{valid_until:%d.%m.%Y, %H:%M}"),
     ]
     for label, value in details:
-        # Zeilen, die auf Höhe des QR-Codes liegen, dürfen nur bis zu ihm reichen
+        # Lines next to the QR code must stop before it
         limit = detail_width if y + 60 > qr_y else right - x
         d.text((x, y), label, font=label_f, fill=MUTED)
         v, vf = _fit(d, value, limit, 28, 20, bold=True)
@@ -185,20 +206,19 @@ def render_card(
         y += 68
 
     zone_text = " · ".join(zones) if zones else "–"
-    d.text((x, y), "Zutritt · Access" if de else "Access · Zutritt", font=label_f, fill=MUTED)
+    d.text((x, y), lbl["access"], font=label_f, fill=MUTED)
     zt, zf = _fit(d, zone_text, detail_width, 24, 16)
     d.text((x, y + 26), zt, font=zf, fill=INK)
 
-    # Ausweis-ID + QR
+    # Badge ID + QR code
     id_f = font(34, True)
     d.text((x, qr_y + qr_size - 40), f"ID {badge_id}", font=id_f, fill=NAVY)
     card.paste(_qr_image(qr_url, qr_size), (qr_x, qr_y))
     return card
 
 
-def render_print_page(card: Image.Image, language: str = "de") -> Image.Image:
-    """A4-Seite: Karte in Originalgröße oben mittig, gestrichelte Schnittlinie, kurzer Hinweis."""
-    de = language != "en"
+def render_print_page(card: Image.Image, language: str = "en") -> Image.Image:
+    """A4 page: card at original size, top centre, dashed cutting line, short note."""
     page = Image.new("RGB", (A4_W, A4_H), "white")
     x, y = (A4_W - CARD_W) // 2, round(25 * MM)
     page.paste(card, (x, y))
@@ -213,19 +233,8 @@ def render_print_page(card: Image.Image, language: str = "de") -> Image.Image:
         d.line([(left, sy), (left, min(sy + dash, bottom))], fill=(140, 140, 140), width=3)
         d.line([(right, sy), (right, min(sy + dash, bottom))], fill=(140, 140, 140), width=3)
 
-    hint = (
-        [
-            "Ihr Besucherausweis – bitte entlang der gestrichelten Linie ausschneiden und gut sichtbar tragen.",
-            "Ihre Daten und Ihr Foto werden nach dem Besuch automatisch gelöscht. Bitte geben Sie den Ausweis beim Gehen ab.",
-        ]
-        if de
-        else [
-            "Your visitor badge – please cut along the dashed line and wear it visibly.",
-            "Your data and photo are deleted automatically after your visit. Please return the badge when you leave.",
-        ]
-    )
     ty = bottom + 50
-    for line in hint:
+    for line in labels(language)["hint"]:
         text, f = _fit(d, line, A4_W - 2 * round(20 * MM), 34, 22)
         d.text(((A4_W - d.textlength(text, font=f)) / 2, ty), text, font=f, fill=(90, 90, 90))
         ty += 52
@@ -234,7 +243,7 @@ def render_print_page(card: Image.Image, language: str = "de") -> Image.Image:
 
 def to_pdf(page: Image.Image) -> bytes:
     buf = io.BytesIO()
-    page.save(buf, format="PDF", resolution=DPI, title="Besucherausweis")
+    page.save(buf, format="PDF", resolution=DPI, title="Visitor badge")
     return buf.getvalue()
 
 
@@ -246,5 +255,5 @@ def to_jpeg(img: Image.Image, max_width: int = 0, quality: int = 85) -> bytes:
     return buf.getvalue()
 
 
-def save_debug(img: Image.Image, path: Path) -> None:  # nur für Tests/Entwicklung
+def save_debug(img: Image.Image, path: Path) -> None:  # tests/development only
     img.save(path)

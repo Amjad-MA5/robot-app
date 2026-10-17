@@ -1,5 +1,5 @@
-# Baut die APK auf GitHub-Servern (kostenlos) und stellt sie als Download bereit.
-# Auslösen: Code hochladen (push) oder unter "Actions" → "Build APK" → "Run workflow".
+# Builds the APK on GitHub's servers (free) and publishes it as a download.
+# Trigger: push to main, or "Actions" -> "Build APK" -> "Run workflow".
 name: Build APK
 
 on:
@@ -24,10 +24,10 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # Das Android SDK ist auf den GitHub-Runnern schon vorinstalliert ($ANDROID_HOME).
-      # android-actions/setup-android@v3 bricht dort derzeit ab ("Failed to find package 'tools'"),
-      # deshalb nur die Lizenzen bestätigen – fehlende Pakete lädt Gradle dann selbst nach.
-      - name: Android SDK vorbereiten
+      # The Android SDK is preinstalled on GitHub's runners ($ANDROID_HOME).
+      # android-actions/setup-android@v3 currently fails there ("Failed to find package 'tools'"),
+      # so only accept the licenses - Gradle downloads missing packages itself.
+      - name: Prepare Android SDK
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
@@ -36,26 +36,26 @@ jobs:
         with:
           gradle-version: "8.14.3"
 
-      - name: Unit-Tests
+      - name: Unit tests
         run: gradle :app:testDebugUnitTest --stacktrace
 
-      - name: APK bauen
+      - name: Build APK
         run: gradle :app:assembleRelease --stacktrace
 
-      - name: APK umbenennen
+      - name: Rename APK
         run: cp app/build/outputs/apk/release/app-release.apk smart-receptionist.apk
 
-      - name: Als Artefakt speichern
+      - name: Upload as artifact
         uses: actions/upload-artifact@v4
         with:
           name: smart-receptionist-apk
           path: android/smart-receptionist.apk
 
-      # Fester Download-Link (auch für den Browser auf dem Roboter):
+      # Fixed download link (also for the browser on the robot):
       # https://github.com/<user>/<repo>/releases/download/latest/smart-receptionist.apk
-      - name: Release "latest" aktualisieren
+      - name: Update the "latest" release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete latest --yes --cleanup-tag || true
-          gh release create latest smart-receptionist.apk --title "Smart Receptionist (neuester Build)" --notes "Automatisch gebaut aus ${GITHUB_SHA::7}"
+          gh release create latest smart-receptionist.apk --title "Smart Receptionist (latest build)" --notes "Built automatically from ${GITHUB_SHA::7}"

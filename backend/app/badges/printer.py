@@ -1,11 +1,11 @@
-"""Druck an den Firmendrucker – ohne Treiber, direkt per IPP (Internet Printing Protocol).
+"""Printing on the company printer - no driver, straight over IPP (Internet Printing Protocol).
 
-Geprüft am Konica Minolta bizhub C361i (192.168.0.233): IPP läuft dort über normales HTTP
-(Port 80) unter http://192.168.0.233/ipp und nimmt application/pdf und image/jpeg an.
-IPP ist ein einfaches Binärformat, das per HTTP-POST verschickt wird – dafür reicht httpx.
+Verified on the Konica Minolta bizhub C361i (192.168.0.233): IPP is served over plain HTTP on
+port 80 at http://192.168.0.233/ipp (and on port 631) and accepts application/pdf and image/jpeg.
+IPP is a small binary format sent with an HTTP POST, so httpx is all we need.
 
-Weitere Wege (SR_PRINTER_METHODS): "ftp" lädt die PDF auf den FTP-Server des Druckers
-(bei vielen Multifunktionsgeräten = Direktdruck), "mock" druckt nur ins Dashboard.
+Other methods (SR_PRINTER_METHODS): "ftp" uploads the PDF to the printer's FTP server
+(direct print on many multifunction devices), "mock" only shows the badge in the dashboard.
 """
 from __future__ import annotations
 
@@ -26,14 +26,14 @@ from .settings import BadgeSettings
 log = logging.getLogger("smart-receptionist.printer")
 
 # --------------------------------------------------------------------------- IPP
-# Werte-Tags (RFC 8010)
+# Value tags (RFC 8010)
 TAG_OPERATION, TAG_JOB, TAG_END, TAG_PRINTER = 0x01, 0x02, 0x03, 0x04
 TAG_INTEGER, TAG_BOOLEAN, TAG_ENUM = 0x21, 0x22, 0x23
 TAG_TEXT, TAG_NAME, TAG_KEYWORD, TAG_URI, TAG_CHARSET, TAG_LANGUAGE, TAG_MIME = 0x41, 0x42, 0x44, 0x45, 0x47, 0x48, 0x49
 
 OP_PRINT_JOB, OP_VALIDATE_JOB, OP_GET_PRINTER_ATTRIBUTES = 0x0002, 0x0004, 0x000B
 
-PRINTER_STATES = {3: "bereit", 4: "druckt", 5: "angehalten"}
+PRINTER_STATES = {3: "idle", 4: "printing", 5: "stopped"}
 
 
 def _attr(tag: int, name: str, value: Any) -> bytes:
@@ -48,7 +48,7 @@ def _attr(tag: int, name: str, value: Any) -> bytes:
 
 
 def ipp_uri(url: str) -> str:
-    """http://host/ipp → ipp://host/ipp (so steht es in printer-uri-supported)."""
+    """http://host/ipp -> ipp://host/ipp (the form listed in printer-uri-supported)."""
     p = urlparse(url)
     if p.scheme in ("http", "https"):
         port = f":{p.port}" if p.port and p.port not in (80, 443, 631) else ""
@@ -61,7 +61,7 @@ def build_request(
     printer_url: str,
     *,
     request_id: int = 1,
-    user: str = "Nova-Empfang",
+    user: str = "Nova-Reception",
     job_name: str | None = None,
     document_format: str | None = None,
     job_attributes: list[tuple[int, str, Any]] | None = None,
@@ -70,7 +70,7 @@ def build_request(
     out = bytearray(struct.pack(">bbhi", 2, 0, operation, request_id))
     out.append(TAG_OPERATION)
     out += _attr(TAG_CHARSET, "attributes-charset", "utf-8")
-    out += _attr(TAG_LANGUAGE, "attributes-natural-language", "de")
+    out += _attr(TAG_LANGUAGE, "attributes-natural-language", "en")
     out += _attr(TAG_URI, "printer-uri", ipp_uri(printer_url))
     out += _attr(TAG_NAME, "requesting-user-name", user)
     if job_name:
@@ -88,9 +88,9 @@ def build_request(
 
 
 def parse_response(data: bytes) -> tuple[int, dict[str, list[Any]]]:
-    """Statuscode + Attribute (Name → Werte) einer IPP-Antwort."""
+    """Status code + attributes (name -> values) of an IPP response."""
     if len(data) < 8:
-        raise ValueError("Antwort zu kurz")
+        raise ValueError("IPP response too short")
     status = struct.unpack(">H", data[2:4])[0]
     attrs: dict[str, list[Any]] = {}
     i, last = 8, ""
@@ -99,7 +99,7 @@ def parse_response(data: bytes) -> tuple[int, dict[str, list[Any]]]:
         i += 1
         if tag == TAG_END:
             break
-        if tag < 0x10:  # Gruppen-Trenner
+        if tag < 0x10:  # group delimiter
             continue
         n_len = struct.unpack(">H", data[i : i + 2])[0]
         i += 2
@@ -125,15 +125,15 @@ def parse_response(data: bytes) -> tuple[int, dict[str, list[Any]]]:
 
 def status_text(code: int) -> str:
     known = {
-        0x0000: "ok", 0x0001: "ok (Attribute angepasst)", 0x0002: "ok (Konflikt ignoriert)",
-        0x0400: "ungültige Anfrage", 0x0401: "verboten", 0x0402: "Anmeldung nötig",
-        0x040A: "Dokumentformat nicht unterstützt", 0x040B: "Attribute nicht unterstützt",
-        0x0500: "Druckerfehler", 0x0506: "Drucker nimmt keine Aufträge an", 0x0507: "Drucker beschäftigt",
+        0x0000: "ok", 0x0001: "ok (attributes adjusted)", 0x0002: "ok (conflicts ignored)",
+        0x0400: "bad request", 0x0401: "forbidden", 0x0402: "authentication required",
+        0x040A: "document format not supported", 0x040B: "attributes not supported",
+        0x0500: "printer error", 0x0506: "printer is not accepting jobs", 0x0507: "printer busy",
     }
-    return known.get(code, f"IPP-Status 0x{code:04x}")
+    return known.get(code, f"IPP status 0x{code:04x}")
 
 
-# ----------------------------------------------------------------------- Ergebnis
+# ------------------------------------------------------------------------ Result
 @dataclass
 class PrintResult:
     sent: bool
@@ -154,7 +154,7 @@ class BadgePrinter:
         self.cfg = cfg
         self._transport = transport
         self._lock = threading.Lock()
-        # Nur im mock-Modus: letzte „Ausdrucke“ fürs Dashboard (werden beim Checkout gelöscht)
+        # mock mode only: the latest "printouts" for the dashboard (removed on checkout)
         self.mock_outbox: list[MockPrint] = []
 
     def _client(self) -> httpx.Client:
@@ -172,14 +172,14 @@ class BadgePrinter:
             (TAG_KEYWORD, "media", "iso_a4_210x297mm"),
             (TAG_KEYWORD, "sides", "one-sided"),
             (TAG_KEYWORD, "print-color-mode", self.cfg.print_color or "color"),
-            # Originalgröße – sonst wird die Karte auf Seitengröße „angepasst“
+            # Original size - otherwise the printer scales the card to the page
             (TAG_KEYWORD, "print-scaling", "none"),
         ]
 
-    # ------------------------------------------------------------- Abfragen
+    # ---------------------------------------------------------------- Queries
     def status(self) -> dict:
         if "ipp" not in self.cfg.printer_methods:
-            return {"reachable": None, "methods": list(self.cfg.printer_methods), "detail": "IPP nicht aktiviert"}
+            return {"reachable": None, "methods": list(self.cfg.printer_methods), "detail": "IPP not enabled"}
         try:
             code, attrs = self._ipp(
                 build_request(
@@ -207,14 +207,14 @@ class BadgePrinter:
             return {"reachable": False, "methods": list(self.cfg.printer_methods), "url": self.cfg.printer_url, "detail": str(exc)}
 
     def validate(self) -> PrintResult:
-        """Validate-Job: prüft Auftrag und Attribute, ohne Papier zu verbrauchen."""
+        """Validate-Job: checks the job and its attributes without using paper."""
         try:
             code, attrs = self._ipp(
                 build_request(
                     OP_VALIDATE_JOB,
                     self.cfg.printer_url,
                     user=self.cfg.printer_user,
-                    job_name="Besucherausweis (Test)",
+                    job_name="Visitor badge (test)",
                     document_format="application/pdf",
                     job_attributes=self._job_attributes(),
                 )
@@ -223,11 +223,11 @@ class BadgePrinter:
         except Exception as exc:
             return PrintResult(False, "ipp", str(exc))
 
-    # ----------------------------------------------------------------- Drucken
+    # ---------------------------------------------------------------- Printing
     def print_badge(self, badge_id: str, pdf: bytes, preview_jpeg: bytes, now: datetime) -> PrintResult:
-        """Probiert die konfigurierten Wege der Reihe nach, bis einer klappt."""
+        """Tries the configured methods in order until one succeeds."""
         errors: list[str] = []
-        with self._lock:  # ein Auftrag nach dem anderen
+        with self._lock:  # one job at a time
             for method in self.cfg.printer_methods:
                 try:
                     if method == "ipp":
@@ -237,20 +237,20 @@ class BadgePrinter:
                     elif method == "mock":
                         self.mock_outbox.insert(0, MockPrint(now, badge_id, preview_jpeg))
                         del self.mock_outbox[10:]
-                        result = PrintResult(True, "mock", "Demo-Modus: im Dashboard angezeigt")
+                        result = PrintResult(True, "mock", "demo mode: shown in the dashboard")
                     elif method == "off":
-                        return PrintResult(False, "off", "Druck ausgeschaltet")
+                        return PrintResult(False, "off", "printing is turned off")
                     else:
-                        errors.append(f"{method}: unbekannter Druckweg")
+                        errors.append(f"{method}: unknown print method")
                         continue
                 except Exception as exc:
                     result = PrintResult(False, method, str(exc) or exc.__class__.__name__)
                 if result.sent:
-                    log.info("Ausweis %s gedruckt über %s (%s)", badge_id, result.method, result.detail)
+                    log.info("Badge %s printed via %s (%s)", badge_id, result.method, result.detail)
                     return result
                 errors.append(f"{method}: {result.detail}")
-                log.warning("Druck über %s fehlgeschlagen: %s", method, result.detail)
-        return PrintResult(False, "", "; ".join(errors) or "kein Druckweg konfiguriert")
+                log.warning("Printing via %s failed: %s", method, result.detail)
+        return PrintResult(False, "", "; ".join(errors) or "no print method configured")
 
     def _print_ipp(self, badge_id: str, pdf: bytes) -> PrintResult:
         payload = build_request(
@@ -258,7 +258,7 @@ class BadgePrinter:
             self.cfg.printer_url,
             request_id=2,
             user=self.cfg.printer_user,
-            job_name=f"Besucherausweis {badge_id}",
+            job_name=f"Visitor badge {badge_id}",
             document_format="application/pdf",
             job_attributes=self._job_attributes(),
         )
@@ -269,9 +269,9 @@ class BadgePrinter:
     def _print_ftp(self, badge_id: str, pdf: bytes) -> PrintResult:
         with ftplib.FTP(self.cfg.printer_ftp_host, timeout=self.cfg.printer_timeout_s) as ftp:
             ftp.login(self.cfg.printer_ftp_user, self.cfg.printer_ftp_password)
-            ftp.storbinary(f"STOR Besucherausweis-{badge_id}.pdf", io.BytesIO(pdf))
-        return PrintResult(True, "ftp", f"an {self.cfg.printer_ftp_host} übertragen")
+            ftp.storbinary(f"STOR visitor-badge-{badge_id}.pdf", io.BytesIO(pdf))
+        return PrintResult(True, "ftp", f"uploaded to {self.cfg.printer_ftp_host}")
 
     def forget(self, badge_id: str) -> None:
-        """Nach Checkout/Ablauf auch die Demo-Vorschau (mit Foto) löschen."""
+        """After checkout/expiry also delete the demo preview (it contains the photo)."""
         self.mock_outbox[:] = [m for m in self.mock_outbox if m.badge_id != badge_id]

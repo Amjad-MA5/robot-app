@@ -10,7 +10,7 @@ backend/.venv/
 backend/.env
 backend/data/msal_token_cache.json
 backend/data/package_photos/
-# Besucherausweise enthalten Personendaten – niemals einchecken
+# Visitor badges contain personal data - never commit them
 backend/data/badges.json
 backend/data/badges.tmp
 backend/apk/*.apk

@@ -5,29 +5,29 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * Kamera für das Ausweisfoto. Auf dem Roboter steckt [RobotCamera] dahinter, in Tests eine Attrappe.
+ * Camera for the badge photo. On the robot this is [RobotCamera], in tests a fake.
  *
- * Die Vorschau ist bereits gedreht (aber nicht gespiegelt – das Spiegeln macht die Oberfläche,
- * damit sich der Besucher wie in einem Spiegel sieht). Das fertige Foto ist nie gespiegelt.
+ * The preview is already rotated (but not mirrored - the UI mirrors it so the visitor sees
+ * themselves like in a mirror). The final photo is never mirrored.
  */
 interface PhotoCamera {
-    /** Aktuelles Vorschaubild (ca. 8 Bilder pro Sekunde), null = keine Kamera aktiv */
+    /** Current preview frame (about 8 per second), null = no camera running */
     val preview: StateFlow<Bitmap?>
 
-    /** Welche Kamera gerade läuft (für Admin/Log), z. B. "shared-stream" oder "camera2:1" */
+    /** Which camera is running (for admin/log), e.g. "shared-stream" or "camera2:1" */
     val source: String
 
-    /** Kamera starten. true, sobald das erste Bild angekommen ist; false = keine Kamera nutzbar. */
+    /** Starts the camera. true once the first frame arrived; false = no usable camera. */
     suspend fun open(): Boolean
 
-    /** Aktuelles Bild als JPEG im Hochformat (3:4), null wenn gerade keins vorliegt. */
+    /** Current frame as portrait JPEG (3:4), null if there is none. */
     suspend fun takePhoto(): ByteArray?
 
-    /** Kamera freigeben – danach läuft die Personenerkennung des Roboters wieder normal. */
+    /** Releases the camera - afterwards the robot's person detection works normally again. */
     fun close()
 }
 
-/** Ersatz, solange keine echte Kamera gesetzt ist (z. B. Emulator, Tests): Ausweis ohne Foto. */
+/** Used while no real camera is set (emulator, tests): badge without photo. */
 object NoCamera : PhotoCamera {
     override val preview: StateFlow<Bitmap?> = MutableStateFlow(null)
     override val source: String = "none"
