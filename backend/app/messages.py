@@ -1,4 +1,4 @@
-"""Texte der Benachrichtigungen an Mitarbeiter (Teams/E-Mail)."""
+"""Email content for employee notifications."""
 from __future__ import annotations
 
 from datetime import datetime

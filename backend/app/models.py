@@ -42,7 +42,7 @@ class Availability(BaseModel):
 
 class NotificationResult(BaseModel):
     sent: bool
-    channel: str = ""  # teams | email | workflow | mock
+    channel: str = ""  # email | mock
     detail: str = ""
 
 

@@ -1,18 +1,13 @@
-"""Anbindung an Microsoft 365 über die Microsoft Graph API.
+"""Microsoft 365 directory and calendar integration using Microsoft Graph.
 
-Zwei Anmeldearten (SR_GRAPH_AUTH):
+Two authentication modes (SR_GRAPH_AUTH):
 
-* ``delegated`` (empfohlen für Teams): Das Backend meldet sich einmalig per
-  Device-Code als Empfangs-Konto an (z. B. empfang@firma.de). Damit kann es
-  1:1-Teams-Chats mit Mitarbeitern öffnen, Frei/Gebucht-Zeiten lesen,
-  Terminanfragen schicken und E-Mails senden.
-  Benötigte delegierte Berechtigungen: User.Read, User.ReadBasic.All,
-  Calendars.ReadWrite, Chat.Create, ChatMessage.Send, Mail.Send
+* ``delegated``: The backend signs in once as the reception mailbox using a
+  device code. Delegated permissions: User.Read, User.ReadBasic.All,
+  Calendars.ReadWrite.
 
-* ``app``: Anwendungsberechtigungen mit Client-Secret (Admin-Consent nötig):
-  User.Read.All, Calendars.ReadWrite, Mail.Send. Teams-Nachrichten sind mit
-  reinen App-Rechten von Microsoft nicht erlaubt → dafür SR_TEAMS_WORKFLOW_URL
-  (Teams-Workflow mit Webhook-Trigger) setzen, sonst wird per E-Mail benachrichtigt.
+* ``app``: Application permissions with client secret and admin consent:
+  User.Read.All, Calendars.ReadWrite.
 """
 from __future__ import annotations
 
@@ -28,6 +23,7 @@ import msal
 from ..config import Settings
 from ..models import BusyBlock, Employee, NotificationResult
 from .base import Provider, ProviderError
+from .smtp import notify_email
 
 log = logging.getLogger(__name__)
 
@@ -36,9 +32,6 @@ DELEGATED_SCOPES = [
     "User.Read",
     "User.ReadBasic.All",
     "Calendars.ReadWrite",
-    "Chat.Create",
-    "ChatMessage.Send",
-    "Mail.Send",
 ]
 APP_SCOPES = ["https://graph.microsoft.com/.default"]
 EMPLOYEE_CACHE_SECONDS = 600
@@ -84,7 +77,6 @@ class GraphProvider(Provider):
         self._employees: list[Employee] = []
         self._employees_loaded_at = 0.0
         self._me: dict | None = None
-        self._chat_ids: dict[str, str] = {}
         self._device_flow: dict | None = None
         self._device_flow_result: dict | None = None
 
@@ -146,7 +138,6 @@ class GraphProvider(Provider):
                 self._msal.remove_account(account)
             self._persist_cache()
         self._me = None
-        self._chat_ids.clear()
 
     # ------------------------------------------------------------------ HTTP
     def _request(self, method: str, path: str, *, json_body: dict | None = None,
@@ -272,136 +263,17 @@ class GraphProvider(Provider):
             created = self._request("POST", f"/users/{employee.id}/events", json_body=event)
         return created.get("id", "")
 
-    # ----------------------------------------------------------- Benachrichtigung
+    # --------------------------------------------------------------- Notifications
     def notify(self, employee: Employee, subject: str, html: str, text: str) -> NotificationResult:
-        errors: list[str] = []
-        for channel in self.cfg.notify_channels:
-            try:
-                if channel == "teams":
-                    if self.delegated:
-                        self._send_teams_chat(employee, html)
-                        return NotificationResult(sent=True, channel="teams", detail=f"Teams-Chat an {employee.name}")
-                    if self.cfg.teams_workflow_url:
-                        self._send_workflow(employee, subject, text)
-                        return NotificationResult(sent=True, channel="workflow", detail="Teams-Workflow ausgelöst")
-                    errors.append("teams: im App-Modus nur über SR_TEAMS_WORKFLOW_URL möglich")
-                elif channel == "workflow" and self.cfg.teams_workflow_url:
-                    self._send_workflow(employee, subject, text)
-                    return NotificationResult(sent=True, channel="workflow", detail="Teams-Workflow ausgelöst")
-                elif channel == "email":
-                    self._send_mail(employee, subject, html)
-                    return NotificationResult(sent=True, channel="email", detail=f"E-Mail an {employee.email}")
-            except (ProviderError, httpx.HTTPError) as exc:
-                log.warning("Benachrichtigung über %s fehlgeschlagen: %s", channel, exc)
-                errors.append(f"{channel}: {exc}")
-        return NotificationResult(sent=False, channel="", detail="; ".join(errors) or "kein Kanal konfiguriert")
-
-    def _send_teams_chat(self, employee: Employee, html: str) -> None:
-        chat_id = self._chat_ids.get(employee.id)
-        if not chat_id:
-            me_id = self._me_info()["id"]
-
-            def member(user_id: str) -> dict:
-                return {
-                    "@odata.type": "#microsoft.graph.aadUserConversationMember",
-                    "roles": ["owner"],
-                    "user@odata.bind": f"https://graph.microsoft.com/v1.0/users('{user_id}')",
-                }
-
-            # Existiert der 1:1-Chat schon, liefert Graph den bestehenden zurück.
-            chat = self._request(
-                "POST", "/chats",
-                json_body={"chatType": "oneOnOne", "members": [member(me_id), member(employee.id)]},
-            )
-            chat_id = chat["id"]
-            self._chat_ids[employee.id] = chat_id
-        self._request("POST", f"/chats/{chat_id}/messages", json_body={"body": {"contentType": "html", "content": html}})
-
-    def notify_teams_by_email(self, employee: Employee, html: str) -> NotificationResult | None:
-        email = employee.email.strip()
-        if not email:
-            return None
-        try:
-            recipient = self._find_user_by_email(email)
-            if recipient is None:
-                return None
-            graph_employee = Employee(
-                id=recipient["id"],
-                name=recipient.get("displayName") or employee.name,
-                email=recipient.get("mail") or recipient.get("userPrincipalName") or email,
-            )
-            self._send_teams_chat(graph_employee, html)
-        except (ProviderError, httpx.HTTPError) as exc:
-            log.warning("Teams-Nachricht an %s fehlgeschlagen: %s", employee.name, exc)
-            return NotificationResult(sent=False, channel="teams", detail=str(exc))
-        return NotificationResult(sent=True, channel="teams", detail=f"Teams-Chat an {employee.name}")
-
-    def _find_user_by_email(self, email: str) -> dict | None:
-        escaped_email = email.replace("'", "''")
-        select = "id,displayName,mail,userPrincipalName"
-        matches: dict[str, dict] = {}
-        for field in ("mail", "userPrincipalName"):
-            response = self._request(
-                "GET",
-                "/users",
-                params={
-                    "$filter": f"{field} eq '{escaped_email}'",
-                    "$select": select,
-                },
-            )
-            for user in response.get("value", []):
-                addresses = (user.get("mail"), user.get("userPrincipalName"))
-                if any(address and address.casefold() == email.casefold() for address in addresses):
-                    matches[user["id"]] = user
-        if len(matches) > 1:
-            raise ProviderError(f"Mehrere Microsoft-Konten für {email} gefunden")
-        return next(iter(matches.values()), None)
-
-    def _send_mail(self, employee: Employee, subject: str, html: str) -> None:
-        if not employee.email:
-            raise ProviderError(f"{employee.name} hat keine E-Mail-Adresse")
-        payload = {
-            "message": {
-                "subject": subject,
-                "body": {"contentType": "HTML", "content": html},
-                "toRecipients": [{"emailAddress": {"address": employee.email, "name": employee.name}}],
-            },
-            "saveToSentItems": False,
-        }
-        if self.delegated:
-            self._request("POST", "/me/sendMail", json_body=payload)
-        else:
-            if not self.cfg.graph_sender:
-                raise ProviderError("SR_GRAPH_SENDER (Absender-Postfach) ist nicht gesetzt")
-            self._request("POST", f"/users/{self.cfg.graph_sender}/sendMail", json_body=payload)
-
-    def _send_workflow(self, employee: Employee, subject: str, text: str) -> None:
-        card = {
-            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-            "type": "AdaptiveCard",
-            "version": "1.4",
-            "body": [
-                {"type": "TextBlock", "text": subject, "weight": "Bolder", "size": "Medium", "wrap": True},
-                {"type": "TextBlock", "text": text, "wrap": True},
-            ],
-        }
-        payload = {
-            "recipient": employee.email,
-            "recipientName": employee.name,
-            "subject": subject,
-            "text": text,
-            "type": "message",
-            "attachments": [
-                {"contentType": "application/vnd.microsoft.card.adaptive", "contentUrl": None, "content": card}
-            ],
-        }
-        resp = self._http.post(self.cfg.teams_workflow_url, json=payload)
-        if resp.status_code >= 400:
-            raise ProviderError(f"Workflow-Webhook antwortet mit HTTP {resp.status_code}")
+        return notify_email(self.cfg, employee, subject, html, text)
 
     # ------------------------------------------------------------------ Status
     def status(self) -> dict:
-        info: dict = {"provider": self.name, "auth": "delegated" if self.delegated else "app"}
+        info: dict = {
+            "provider": self.name,
+            "auth": "delegated" if self.delegated else "app",
+            "email_configured": bool(self.cfg.smtp_host),
+        }
         if self._device_flow:
             info["device_login_pending"] = {
                 "user_code": self._device_flow.get("user_code"),

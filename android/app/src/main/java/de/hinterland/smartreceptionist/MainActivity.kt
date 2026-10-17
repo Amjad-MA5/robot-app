@@ -1,12 +1,8 @@
 package de.hinterland.smartreceptionist
 
-import android.content.ActivityNotFoundException
-import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.view.WindowManager
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -72,8 +68,6 @@ class MainActivity : ComponentActivity() {
                             override fun onOption(id: String) { vm.choose(id) }
                             override fun onSubmitText(text: String) = vm.submitText(text)
                             override fun onPickEmployee(employee: Employee) { vm.pickEmployee(employee) }
-                            override fun onOpenTeamsChat(employee: Employee) { openTeamsChat(employee) }
-                            override fun onComposeEmail(employee: Employee) { composeEmail(employee) }
                             override fun onCancel() = vm.cancel()
                             override fun onStop() = vm.stopDriving()
                             override fun onAdminRequested() { showPin = true }
@@ -92,47 +86,6 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
-        }
-    }
-
-    private fun openTeamsChat(employee: Employee) {
-        val message = linesFor(vm.settings.language).teamsDraftMessage(employee.name)
-        val uri = Uri.Builder()
-            .scheme("https")
-            .authority("teams.microsoft.com")
-            .appendPath("l")
-            .appendPath("chat")
-            .appendPath("0")
-            .appendPath("0")
-            .appendQueryParameter("users", employee.email.trim())
-            .appendQueryParameter("message", message)
-            .build()
-        try {
-            startActivity(Intent(Intent.ACTION_VIEW, uri))
-        } catch (e: ActivityNotFoundException) {
-            Log.w("MainActivity", "No app can open the Teams chat link", e)
-            Toast.makeText(
-                this,
-                linesFor(vm.settings.language).teamsLinkUnavailable,
-                Toast.LENGTH_LONG,
-            ).show()
-        }
-    }
-
-    private fun composeEmail(employee: Employee) {
-        val intent = Intent(
-            Intent.ACTION_SENDTO,
-            Uri.fromParts("mailto", employee.email.trim(), null),
-        )
-        try {
-            startActivity(intent)
-        } catch (e: ActivityNotFoundException) {
-            Log.w("MainActivity", "No app can compose email", e)
-            Toast.makeText(
-                this,
-                linesFor(vm.settings.language).emailAppUnavailable,
-                Toast.LENGTH_LONG,
-            ).show()
         }
     }
 

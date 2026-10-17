@@ -35,12 +35,10 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -89,8 +87,6 @@ interface ReceptionActions {
     fun onOption(id: String)
     fun onSubmitText(text: String)
     fun onPickEmployee(employee: Employee)
-    fun onOpenTeamsChat(employee: Employee)
-    fun onComposeEmail(employee: Employee)
     fun onCancel()
     fun onStop()
     fun onAdminRequested()
@@ -251,7 +247,6 @@ private fun DrivingPanel(state: UiState, lines: Lines, actions: ReceptionActions
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ConversationPanel(state: UiState, lines: Lines, actions: ReceptionActions) {
-    var employeeToMessage by remember { mutableStateOf<Employee?>(null) }
     Column(Modifier.fillMaxSize().padding(top = 14.dp), verticalArrangement = Arrangement.Center) {
         Text(
             state.title,
@@ -307,41 +302,8 @@ private fun ConversationPanel(state: UiState, lines: Lines, actions: ReceptionAc
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                items(state.employees, key = { it.id }) { e ->
-                    EmployeeCard(
-                        employee = e,
-                        messageLabel = lines.messageEmployeeButton,
-                        onClick = { actions.onPickEmployee(e) },
-                        onMessageClick = { employeeToMessage = e },
-                    )
-                }
+                items(state.employees, key = { it.id }) { e -> EmployeeCard(e) { actions.onPickEmployee(e) } }
             }
-        }
-        employeeToMessage?.let { employee ->
-            AlertDialog(
-                onDismissRequest = { employeeToMessage = null },
-                title = { Text(lines.messageEmployeeTitle(employee.name)) },
-                text = { Text(lines.messageAccountLimit) },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            employeeToMessage = null
-                            actions.onOpenTeamsChat(employee)
-                        },
-                    ) { Text(lines.openTeamsDraft) }
-                },
-                dismissButton = {
-                    Row {
-                        TextButton(
-                            onClick = {
-                                employeeToMessage = null
-                                actions.onComposeEmail(employee)
-                            },
-                        ) { Text(lines.composeEmail) }
-                        TextButton(onClick = { employeeToMessage = null }) { Text(lines.cancel) }
-                    }
-                },
-            )
         }
     }
 }
@@ -391,33 +353,18 @@ private fun OptionButton(option: UiOption, onClick: () -> Unit) {
 }
 
 @Composable
-private fun EmployeeCard(
-    employee: Employee,
-    messageLabel: String,
-    onClick: () -> Unit,
-    onMessageClick: () -> Unit,
-) {
-    Row(
+private fun EmployeeCard(employee: Employee, onClick: () -> Unit) {
+    Column(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
             .background(Palette.Panel)
-            .padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
     ) {
-        Column(
-            Modifier.weight(1f).clickable(onClick = onClick).padding(vertical = 3.dp),
-        ) {
-            Text(employee.name, color = Palette.Text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val sub = listOf(employee.department, employee.jobTitle).filter { it.isNotBlank() }.joinToString(" · ")
-            if (sub.isNotBlank()) Text(sub, color = Palette.Muted, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        val email = employee.email.trim()
-        if (email.contains("@") && !email.endsWith("@example.com", ignoreCase = true)) {
-            TextButton(onClick = onMessageClick) {
-                Text(messageLabel, fontSize = 10.sp)
-            }
-        }
+        Text(employee.name, color = Palette.Text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        val sub = listOf(employee.department, employee.jobTitle).filter { it.isNotBlank() }.joinToString(" · ")
+        if (sub.isNotBlank()) Text(sub, color = Palette.Muted, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

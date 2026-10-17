@@ -54,7 +54,6 @@ class Settings:
     api_key: str = field(default_factory=lambda: _env("SR_API_KEY", "hinterland-demo"))
     # "mock" = alles simuliert, "graph" = echtes Microsoft 365 über MS Graph
     mode: str = field(default_factory=lambda: _env("SR_MODE", "mock").lower())
-    mock_teams: bool = field(default_factory=lambda: _env_bool("SR_MOCK_TEAMS"))
     company_name: str = field(default_factory=lambda: _env("SR_COMPANY_NAME", "Hinterland Hack"))
 
     timezone: ZoneInfo = field(default_factory=lambda: ZoneInfo(_env("SR_TIMEZONE", "Europe/Berlin")))
@@ -83,26 +82,36 @@ class Settings:
     graph_tenant_id: str = field(default_factory=lambda: _env("SR_GRAPH_TENANT_ID"))
     graph_client_id: str = field(default_factory=lambda: _env("SR_GRAPH_CLIENT_ID"))
     graph_client_secret: str = field(default_factory=lambda: _env("SR_GRAPH_CLIENT_SECRET"))
-    # "delegated" = Backend meldet sich als Empfangs-Konto an (Device Code), kann Teams-Chats schreiben
-    # "app" = App-Berechtigungen mit Client Secret (Teams nur über Workflow-Webhook)
+    # "delegated" = Backend meldet sich als Empfangs-Konto an (Device Code)
+    # "app" = App-Berechtigungen mit Client Secret
     graph_auth: str = field(default_factory=lambda: _env("SR_GRAPH_AUTH", "delegated").lower())
-    # Nur App-Modus: Postfach, von dem E-Mails verschickt werden (UPN oder Objekt-ID)
-    graph_sender: str = field(default_factory=lambda: _env("SR_GRAPH_SENDER"))
     # Optional: nur Mitglieder dieser Entra-Gruppe sind als Ansprechpartner wählbar
     employee_group_id: str = field(default_factory=lambda: _env("SR_EMPLOYEE_GROUP_ID"))
-    # Kanäle für Benachrichtigungen, Reihenfolge = Priorität
-    notify_channels: tuple[str, ...] = field(
-        default_factory=lambda: tuple(
-            c.strip().lower() for c in _env("SR_NOTIFY_CHANNELS", "teams,email").split(",") if c.strip()
-        )
-    )
-    # Optional: Teams-Workflow ("Wenn eine Teams-Webhookanforderung empfangen wird")
-    teams_workflow_url: str = field(default_factory=lambda: _env("SR_TEAMS_WORKFLOW_URL"))
+    smtp_host: str = field(default_factory=lambda: _env("SR_SMTP_HOST"))
+    smtp_port: int = field(default_factory=lambda: _env_int("SR_SMTP_PORT", 587))
+    smtp_username: str = field(default_factory=lambda: _env("SR_SMTP_USERNAME"))
+    smtp_password: str = field(default_factory=lambda: _env("SR_SMTP_PASSWORD"))
+    smtp_from: str = field(default_factory=lambda: _env("SR_SMTP_FROM"))
+    smtp_security: str = field(default_factory=lambda: _env("SR_SMTP_SECURITY", "starttls").lower())
     token_cache_file: Path = field(
         default_factory=lambda: _resolve(_env("SR_TOKEN_CACHE", "data/msal_token_cache.json"))
     )
 
     def __post_init__(self) -> None:
+        if self.smtp_security not in {"starttls", "ssl", "none"}:
+            raise ValueError("SR_SMTP_SECURITY must be starttls, ssl, or none")
+        if not 1 <= self.smtp_port <= 65535:
+            raise ValueError("SR_SMTP_PORT must be between 1 and 65535")
+        if self.smtp_host:
+            if not self.smtp_from:
+                raise ValueError("SR_SMTP_FROM is required when SR_SMTP_HOST is configured")
+            if bool(self.smtp_username) != bool(self.smtp_password):
+                raise ValueError("SR_SMTP_USERNAME and SR_SMTP_PASSWORD must be configured together")
+            if self.smtp_security == "none" and self.smtp_username:
+                raise ValueError("SMTP credentials require TLS; set SR_SMTP_SECURITY to starttls or ssl")
+        elif self.smtp_username or self.smtp_password or self.smtp_from:
+            raise ValueError("SR_SMTP_HOST is required when SMTP settings are configured")
+
         # Im Demo-Modus sollen die Szenarien auch am Wochenende oder abends
         # (Hackathon!) funktionieren – solange nichts anderes eingestellt ist.
         if self.mode == "mock":

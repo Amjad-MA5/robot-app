@@ -1,8 +1,7 @@
-"""Demo-Anbindung ohne Microsoft 365.
+"""Demo employee/calendar provider with optional real email notifications.
 
-Mitarbeiter und Kalender kommen aus data/mock_employees.json. Statt echter
-Teams-Nachrichten landen die Benachrichtigungen in einem "Mock-Postfach",
-das auf der Weboberfläche des Backends live angezeigt wird.
+Employees and calendars come from data/mock_employees.json. Without SMTP
+configured, notifications are stored in the dashboard's simulated inbox.
 """
 from __future__ import annotations
 
@@ -14,8 +13,8 @@ from datetime import datetime, timedelta
 from .. import clock
 from ..config import Settings
 from ..models import BusyBlock, Employee, NotificationResult
-from .base import Provider, ProviderError
-from .graph import GraphProvider
+from .base import Provider
+from .smtp import notify_email
 
 
 class MockProvider(Provider):
@@ -38,8 +37,6 @@ class MockProvider(Provider):
             )
             for e in self._raw_employees
         ]
-        self._teams_notifier = GraphProvider(cfg) if cfg.mock_teams else None
-
     def list_employees(self) -> list[Employee]:
         return list(self._employees)
 
@@ -78,10 +75,8 @@ class MockProvider(Provider):
         return [b for b in blocks if b.start < end and b.end > start]
 
     def notify(self, employee: Employee, subject: str, html: str, text: str) -> NotificationResult:
-        if self._teams_notifier:
-            result = self._teams_notifier.notify_teams_by_email(employee, html)
-            if result is not None:
-                return result
+        if self.cfg.smtp_host:
+            return notify_email(self.cfg, employee, subject, html, text)
         with self._lock:
             self.inbox.insert(
                 0,
@@ -90,14 +85,14 @@ class MockProvider(Provider):
                     "time": clock.now(self.cfg.timezone).isoformat(timespec="seconds"),
                     "to": employee.name,
                     "email": employee.email,
-                    "channel": "teams (simuliert)",
+                    "channel": "email (simuliert)",
                     "subject": subject,
                     "text": text,
                     "html": html,
                 },
             )
             del self.inbox[100:]
-        return NotificationResult(sent=True, channel="mock", detail=f"Mock-Teams-Nachricht an {employee.name}")
+        return NotificationResult(sent=True, channel="mock", detail=f"Mock-E-Mail an {employee.name}")
 
     def create_appointment(
         self, employee: Employee, start: datetime, end: datetime, subject: str, body_html: str
@@ -110,17 +105,9 @@ class MockProvider(Provider):
         return event_id
 
     def status(self) -> dict:
-        status = {"provider": self.name, "ready": True, "employees": len(self._employees)}
-        if self._teams_notifier:
-            status["teams"] = self._teams_notifier.status()
-        return status
-
-    def start_device_login(self) -> dict:
-        if self._teams_notifier is None:
-            raise ProviderError("SR_MOCK_TEAMS ist nicht aktiviert")
-        return self._teams_notifier.start_device_login()
-
-    def logout(self) -> None:
-        if self._teams_notifier is None:
-            raise ProviderError("SR_MOCK_TEAMS ist nicht aktiviert")
-        self._teams_notifier.logout()
+        return {
+            "provider": self.name,
+            "ready": True,
+            "employees": len(self._employees),
+            "email_configured": bool(self.cfg.smtp_host),
+        }

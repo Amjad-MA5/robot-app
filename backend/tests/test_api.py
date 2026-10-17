@@ -141,6 +141,7 @@ def test_scenario3_book_slot_and_conflict(client):
     r = client.post("/api/appointments", json=payload, headers=HEADERS)
     assert r.status_code == 200, r.text
     assert r.json()["created"] is True
+    assert r.json()["notification"]["sent"] is True
     again = client.post("/api/appointments", json=payload, headers=HEADERS)
     assert again.status_code == 409
     new_slots = client.get("/api/employees/sophie.wagner/slots", headers=HEADERS).json()
