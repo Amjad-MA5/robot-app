@@ -56,7 +56,7 @@ class Settings:
     mode: str = field(default_factory=lambda: _env("SR_MODE", "mock").lower())
     # Sprache der Benachrichtigungen an Mitarbeiter: en | de
     language: str = field(default_factory=lambda: _env("SR_LANGUAGE", "en").lower())
-    company_name: str = field(default_factory=lambda: _env("SR_COMPANY_NAME", "Hinterland Hack"))
+    company_name: str = field(default_factory=lambda: _env("SR_COMPANY_NAME", "Founders Foundation"))
     # Was mit Paketen passiert: leave_at_desk | wait_for_recipient
     delivery_handling: str = field(default_factory=lambda: _env("SR_DELIVERY_HANDLING", "leave_at_desk"))
     # Erinnerung, wenn ein Paket nach so vielen Minuten nicht abgeholt wurde (0 = aus)

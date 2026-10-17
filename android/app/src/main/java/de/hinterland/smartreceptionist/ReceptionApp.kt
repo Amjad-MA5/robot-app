@@ -20,7 +20,7 @@ class ReceptionApp : Application() {
             object : AppAgent(this) {
                 override fun onCreate() {
                     setPersona(
-                        "You are Nova, a friendly digital receptionist at a company. " +
+                        "You are Norra, a friendly digital receptionist at a company. " +
                             "You welcome visitors, collect their names and the person they are visiting, " +
                             "notify employees through Microsoft Teams, and escort guests to the waiting room."
                     )

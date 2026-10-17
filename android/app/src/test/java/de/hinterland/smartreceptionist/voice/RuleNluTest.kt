@@ -90,4 +90,17 @@ class RuleNluTest {
         assertEquals("Trans-o-flex", RuleNlu.carrierFromAnswer("von Trans-o-flex"))
         assertNull(RuleNlu.carrierFromAnswer(""))
     }
+
+    @Test
+    fun employeeListRequests() {
+        listOf(
+            "Show me the employee list", "show all employees", "Can you show the staff please", "I want to see all the people",
+            "employee list", "Zeig mir die Mitarbeiterliste", "Zeig mir alle Mitarbeitenden", "Kannst du die Mitarbeiter anzeigen?",
+            "Wer arbeitet hier?", "all employees",
+        ).forEach { assertEquals(it, true, RuleNlu.wantsEmployeeList(it)) }
+        listOf(
+            "I would like to talk to Anna Schmidt", "Ich möchte Herrn Becker sprechen", "I have an appointment",
+            "Hallo", "My name is Peter", "Is the employee Anna here?",
+        ).forEach { assertEquals(it, false, RuleNlu.wantsEmployeeList(it)) }
+    }
 }

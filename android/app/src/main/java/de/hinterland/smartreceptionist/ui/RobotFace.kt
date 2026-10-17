@@ -35,7 +35,7 @@ import kotlin.math.sin
 import kotlin.random.Random
 
 /**
- * Animierter Roboter-Avatar „Nova“: weißes Gehäuse, dunkles Visier mit leuchtenden Augen, Antenne.
+ * Animierter Roboter-Avatar „Norra“: weißes Gehäuse, dunkles Visier mit leuchtenden Augen, Antenne.
  *
  * Augen blinzeln zufällig und schauen sich um, der Mund bewegt sich beim Sprechen,
  * bei Freude werden die Augen zu lachenden Bögen, beim Nachdenken wandern sie nach oben.

@@ -20,6 +20,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -29,6 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
@@ -57,6 +62,7 @@ import de.hinterland.smartreceptionist.robot.NavResult
 import de.hinterland.smartreceptionist.robot.RobotController
 import de.hinterland.smartreceptionist.ui.theme.Palette
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -97,6 +103,18 @@ fun AdminScreen(initial: AppSettings, onSave: (AppSettings) -> Unit, onClose: ()
     var driveJob by remember { mutableStateOf<Job?>(null) }
 
     fun addLog(line: String) { log = "$line\n$log".take(2000) }
+
+    // Kartenpunkte beim Öffnen automatisch vom Roboter holen (leer, solange RobotAPI nicht verbunden ist)
+    LaunchedEffect(Unit) {
+        repeat(10) {
+            places = RobotController.placeNames()
+            if (places.isNotEmpty()) {
+                addLog("✔ Loaded ${places.size} map points")
+                return@LaunchedEffect
+            }
+            delay(2_000) // RobotAPI verbindet sich evtl. erst kurz nach dem Start
+        }
+    }
     fun client() = BackendClient(s.backendUrl, s.apiKey)
 
     // Eigene Testkamera für den Admin-Bereich – nutzt die (noch ungespeicherten) Einstellungen
@@ -162,18 +180,8 @@ fun AdminScreen(initial: AppSettings, onSave: (AppSettings) -> Unit, onClose: ()
                 addLog(if (places.isEmpty()) "✖ No map points (is RobotAPI connected and a map loaded?)" else "✔ Loaded ${places.size} map points")
             }
         }
-        Field("Waiting room map point", s.waitingRoom) { s = s.copy(waitingRoom = it) }
-        if (places.isNotEmpty()) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                places.forEach { p -> FilterChip(selected = s.waitingRoom == p, onClick = { s = s.copy(waitingRoom = p) }, label = { Text(p, fontSize = 11.sp) }) }
-            }
-        }
-        Field("Reception map point (return)", s.receptionPoint) { s = s.copy(receptionPoint = it) }
-        if (places.isNotEmpty()) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                places.forEach { p -> FilterChip(selected = s.receptionPoint == p, onClick = { s = s.copy(receptionPoint = p) }, label = { Text(p, fontSize = 11.sp) }) }
-            }
-        }
+        PlaceField("Waiting room map point", s.waitingRoom, places) { s = s.copy(waitingRoom = it) }
+        PlaceField("Reception map point (return)", s.receptionPoint, places) { s = s.copy(receptionPoint = it) }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             SmallButton("Test drive → waiting room") {
                 driveJob?.cancel()
@@ -264,6 +272,10 @@ fun AdminScreen(initial: AppSettings, onSave: (AppSettings) -> Unit, onClose: ()
         ToggleRow("Greet automatically when someone is in front", s.autoGreet) { s = s.copy(autoGreet = it) }
         ToggleRow("Use AgentOS language model for understanding", s.useLlm) { s = s.copy(useLlm = it) }
         ToggleRow("Take a photo of delivered packages (uses the device camera app)", s.deliveryPhoto) { s = s.copy(deliveryPhoto = it) }
+        ToggleRow("Offer a short story about Founders Foundation in the waiting room", s.waitingStory) { s = s.copy(waitingStory = it) }
+        if (s.waitingStory) {
+            Field("Own story text (separate parts with a blank line; empty = default text)", s.waitingStoryText, singleLine = false) { s = s.copy(waitingStoryText = it) }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Language:", color = Palette.Text, fontSize = 13.sp)
             FilterChip(selected = s.language == "de", onClick = { s = s.copy(language = "de") }, label = { Text("German") })
@@ -292,14 +304,41 @@ private fun Section(title: String) {
 }
 
 @Composable
-private fun Field(label: String, value: String, onChange: (String) -> Unit) {
+private fun Field(label: String, value: String, singleLine: Boolean = true, onChange: (String) -> Unit) {
     OutlinedTextField(
         value = value,
         onValueChange = onChange,
         label = { Text(label, fontSize = 11.sp) },
-        singleLine = true,
+        singleLine = singleLine,
+        minLines = if (singleLine) 1 else 4,
         modifier = Modifier.fillMaxWidth(),
     )
+}
+
+/** Dropdown mit den Kartenpunkten des Roboters; ohne geladene Punkte bleibt ein Textfeld als Rückfall. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlaceField(label: String, value: String, places: List<String>, onChange: (String) -> Unit) {
+    if (places.isEmpty()) {
+        Field("$label (type the name, or press \"Load map points\")", value, onChange = onChange)
+        return
+    }
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label, fontSize = 11.sp) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+            modifier = Modifier.fillMaxWidth().menuAnchor(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            places.forEach { p ->
+                DropdownMenuItem(text = { Text(p) }, onClick = { onChange(p); expanded = false })
+            }
+        }
+    }
 }
 
 @Composable

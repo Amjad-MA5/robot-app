@@ -14,6 +14,10 @@ interface GuideLines {
     fun startGuiding(d: Destination): String
     fun arrived(d: Destination): String
     fun alreadyHere(d: Destination): String
+    /** Nach einem Abstecher angekommen: kurz warten, dann geht es weiter */
+    val detourWait: String
+    /** Weiter zum ursprünglichen Ziel */
+    val detourResume: String
     fun notOnMap(kind: PlaceKind): String
     val unknownPlace: String
     fun navFailed(d: Destination): String
@@ -25,7 +29,7 @@ interface GuideLines {
 }
 
 object GermanGuideLines : GuideLines {
-    override val optGuide = "🧭 Wo finde ich …?"
+    override val optGuide = "Wo finde ich …?"
     override val askWhere = "Wohin darf ich Sie bringen?"
     override val chooseOnScreen = "Tippen Sie einfach auf ein Ziel oder sagen Sie es mir."
     override fun startGuiding(d: Destination) = when (d.kind) {
@@ -50,6 +54,8 @@ object GermanGuideLines : GuideLines {
         PlaceKind.RECEPTION -> "Wir sind bereits am Empfang – ich bin hier die Empfangskraft."
         else -> "Wir sind schon da: ${label(d)}."
     }
+    override val detourWait = "Wir sind da. Ich warte einen Moment auf Sie, danach geht es weiter."
+    override val detourResume = "Weiter geht es. Bitte folgen Sie mir."
     override fun notOnMap(kind: PlaceKind) =
         "${capitalized(article(kind))} habe ich leider noch nicht auf meiner Karte. Wohin darf ich Sie sonst bringen?"
     override val unknownPlace = "Diesen Ort kenne ich leider nicht. Wohin darf ich Sie bringen?"
@@ -104,16 +110,16 @@ object GermanGuideLines : GuideLines {
 }
 
 object EnglishGuideLines : GuideLines {
-    override val optGuide = "🧭 Where can I find …?"
+    override val optGuide = "Where can I find …?"
     override val askWhere = "Where would you like to go?"
     override val chooseOnScreen = "Just tap a destination or tell me."
     override fun startGuiding(d: Destination) = when (d.kind) {
-        PlaceKind.EXIT -> "Of course! I'll walk you to the exit. Please follow me."
+        PlaceKind.EXIT -> "Of course! I will walk you to the exit. Please follow me."
         PlaceKind.CHARGING -> "Alright, heading to the charging station."
-        else -> "Of course! Please follow me, I'll take you to ${the(d)}."
+        else -> "Of course! Please follow me, I will take you to ${the(d)}."
     }
     override fun arrived(d: Destination) = when (d.kind) {
-        PlaceKind.RESTROOM -> "Here are the restrooms. I'll head back to reception now."
+        PlaceKind.RESTROOM -> "Here are the restrooms. I will head back to reception now."
         PlaceKind.WAITING_ROOM -> "This is our waiting room. Please have a seat. Enjoy your stay!"
         PlaceKind.EXIT -> "Here is the exit. Thank you for your visit and goodbye!"
         PlaceKind.RECEPTION -> "This is reception. How can I help you?"
@@ -121,15 +127,17 @@ object EnglishGuideLines : GuideLines {
         else -> "Here is ${the(d)}."
     }
     override fun alreadyHere(d: Destination) = when (d.kind) {
-        PlaceKind.RECEPTION -> "We're already at reception – I'm the receptionist here."
-        else -> "We're already there: ${label(d)}."
+        PlaceKind.RECEPTION -> "We are already at reception – I am the receptionist here."
+        else -> "We are already there: ${label(d)}."
     }
+    override val detourWait = "We are here. I will wait a moment, then we will continue."
+    override val detourResume = "Let us continue. Please follow me."
     override fun notOnMap(kind: PlaceKind) =
-        "Sorry, ${the(kind)} isn't on my map yet. Where else can I take you?"
-    override val unknownPlace = "Sorry, I don't know that place. Where would you like to go?"
-    override fun navFailed(d: Destination) = "Sorry, I can't get to ${the(d)} right now. Please ask a member of staff."
-    override val noPlaces = "I don't have any destinations on my map right now."
-    override val robotOffline = "Sorry, I can't move right now."
+        "Sorry, ${the(kind)} is not on my map yet. Where else can I take you?"
+    override val unknownPlace = "Sorry, I do not know that place. Where would you like to go?"
+    override fun navFailed(d: Destination) = "Sorry, I cannot get to ${the(d)} right now. Please ask a member of staff."
+    override val noPlaces = "I do not have any destinations on my map right now."
+    override val robotOffline = "Sorry, I cannot move right now."
     override fun whichOne(kind: PlaceKind) = "There are several. Which one do you mean?"
 
     override fun label(d: Destination): String = when (d.kind) {

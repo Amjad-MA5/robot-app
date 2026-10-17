@@ -234,6 +234,24 @@ object RuleNlu {
             .containsMatchIn(t + " ")
     }
 
+    private const val STAFF_NOUN =
+        "(employees?|staff|people|team|colleagues|co-workers|mitarbeiter\\w*|mitarbeitende\\w*|kolleg\\w*|personal|leute|angestellte\\w*)"
+    private const val SHOW_VERB =
+        "(show|display|list|see|view|zeig\\w*|anzeig\\w*|liste|übersicht|verzeichnis|directory)"
+    private val EMPLOYEE_LIST = listOf(
+        Regex(" $SHOW_VERB(?: [\\p{L}']+){0,4} $STAFF_NOUN "),
+        Regex(" $STAFF_NOUN(?: [\\p{L}']+){0,2} $SHOW_VERB "),
+        Regex(" $STAFF_NOUN (list|directory|liste|verzeichnis|übersicht) "),
+        Regex(" (all|every|alle) (the |our |your |die |unsere |eure )?$STAFF_NOUN "),
+        Regex(" (who works here|wer arbeitet hier|wer ist hier angestellt) "),
+    )
+
+    /** „Zeig mir die Mitarbeiterliste“ / „show the employee list“ – wie der Knopf „Alle Mitarbeitenden anzeigen“ */
+    fun wantsEmployeeList(text: String): Boolean {
+        val t = norm(text)
+        return EMPLOYEE_LIST.any { it.containsMatchIn(t) }
+    }
+
     fun wantsCancel(text: String): Boolean {
         val t = norm(text)
         return listOf(" abbrechen ", " stopp ", " stop ", " vergiss es ", " egal ", " tschüss ", " auf wiedersehen ", " cancel ", " never mind ", " bye ")

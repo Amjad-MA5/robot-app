@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -71,6 +72,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.painterResource
+import de.hinterland.smartreceptionist.R
 import de.hinterland.smartreceptionist.flow.InputKind
 import de.hinterland.smartreceptionist.flow.Phase
 import de.hinterland.smartreceptionist.flow.PhotoMode
@@ -117,6 +120,20 @@ fun ReceptionScreen(state: UiState, lines: Lines, actions: ReceptionActions, cam
                 enabled = state.phase == Phase.IDLE,
             ) { actions.onScreenTap() },
     ) {
+        // Hintergrund wie in den Hinterland-Folien: großes „H“ blass am rechten Rand, kleines Logo unten rechts
+        Image(
+            painter = painterResource(R.drawable.bg_h_mark),
+            contentDescription = null,
+            alpha = 0.16f,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(1.05f).offset(x = 60.dp),
+        )
+        Image(
+            painter = painterResource(R.drawable.logo_hinterland),
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 8.dp).height(24.dp),
+        )
         Row(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp)) {
             // ---------- links: Gesicht + Untertitel
             Column(

@@ -19,9 +19,9 @@ data class AppSettings(
     /** "de" oder "en" */
     val language: String = "en",
     /** Name, mit dem sich der Roboter vorstellt */
-    val robotName: String = "Nova",
+    val robotName: String = "Norra",
     /** Wird überschrieben, sobald das Backend seinen Firmennamen liefert */
-    val companyName: String = "Hinterland Hack",
+    val companyName: String = "Founders Foundation",
     /** Personen näher als dieser Abstand (Meter) werden automatisch begrüßt */
     val greetDistance: Float = 1.8f,
     /** Automatisch begrüßen, sobald jemand vor dem Roboter steht */
@@ -48,6 +48,10 @@ data class AppSettings(
     val cameraMirror: Boolean = true,
     /** Wo der Ausweis abgeholt wird, z. B. "am Drucker neben dem Empfang" (leer = Standardtext) */
     val badgePickupHint: String = "",
+    /** Im Warteraum eine kurze Geschichte über die Founders Foundation anbieten */
+    val waitingStory: Boolean = true,
+    /** Eigener Text für die Geschichte (Absätze durch Leerzeilen getrennt; leer = Standardtext) */
+    val waitingStoryText: String = "",
 ) {
     val isGerman: Boolean get() = language != "en"
 
@@ -78,6 +82,8 @@ data class AppSettings(
                 cameraSource = p.getString("cameraSource", d.cameraSource) ?: d.cameraSource,
                 cameraMirror = p.getBoolean("cameraMirror", d.cameraMirror),
                 badgePickupHint = p.getString("badgePickupHint", d.badgePickupHint) ?: d.badgePickupHint,
+                waitingStory = p.getBoolean("waitingStory", d.waitingStory),
+                waitingStoryText = p.getString("waitingStoryText", d.waitingStoryText) ?: d.waitingStoryText,
             )
         }
 
@@ -104,6 +110,8 @@ data class AppSettings(
                 .putString("cameraSource", s.cameraSource)
                 .putBoolean("cameraMirror", s.cameraMirror)
                 .putString("badgePickupHint", s.badgePickupHint.trim())
+                .putBoolean("waitingStory", s.waitingStory)
+                .putString("waitingStoryText", s.waitingStoryText.trim())
                 .apply()
         }
     }

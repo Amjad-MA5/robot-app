@@ -44,7 +44,7 @@ object GermanBadgeLines : BadgeLines {
 }
 
 object EnglishBadgeLines : BadgeLines {
-    override val askPhoto = "For your visitor badge I'd like to take a quick photo of you. Is that okay?"
+    override val askPhoto = "For your visitor badge I would like to take a quick photo of you. Is that okay?"
     override val photoPrivacy = "The photo is only used for your badge and deleted after printing."
     override val optPhotoYes = "Yes, take a photo"
     override val optNoPhoto = "Without photo"
@@ -54,12 +54,12 @@ object EnglishBadgeLines : BadgeLines {
     override val reviewQuestion = "This is your photo. Is it okay?"
     override val optPhotoOk = "✔ Looks good"
     override val optRetake = "Take another"
-    override val cameraUnavailable = "Sorry, my camera isn't available right now. Your badge will be printed without a photo."
-    override val printing = "One moment, I'm creating your visitor badge."
+    override val cameraUnavailable = "Sorry, my camera is not available right now. Your badge will be printed without a photo."
+    override val printing = "One moment, I am creating your visitor badge."
     override val printingTitle = "Your visitor badge"
     override fun printed(pickupHint: String) =
         "Your visitor badge is being printed now. Please pick it up $pickupHint and wear it visibly."
-    override val printFailed = "Sorry, the badge couldn't be printed right now. Please ask a member of staff."
+    override val printFailed = "Sorry, the badge could not be printed right now. Please ask a member of staff."
     override val noPhotoOk = "No problem, without a photo then."
     override val badgeTitle = "Your visitor badge"
 }

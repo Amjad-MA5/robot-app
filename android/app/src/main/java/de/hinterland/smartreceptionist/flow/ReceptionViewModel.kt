@@ -13,6 +13,7 @@ import de.hinterland.smartreceptionist.badge.PhotoCamera
 import de.hinterland.smartreceptionist.badge.badgeLinesFor
 import de.hinterland.smartreceptionist.config.AppSettings
 import de.hinterland.smartreceptionist.guide.Destination
+import de.hinterland.smartreceptionist.guide.Detour
 import de.hinterland.smartreceptionist.guide.GuideLines
 import de.hinterland.smartreceptionist.guide.GuideNlu
 import de.hinterland.smartreceptionist.guide.GuideRequest
@@ -21,6 +22,7 @@ import de.hinterland.smartreceptionist.guide.PlaceCache
 import de.hinterland.smartreceptionist.guide.PlaceCatalog
 import de.hinterland.smartreceptionist.guide.PlaceKind
 import de.hinterland.smartreceptionist.guide.RobotNavigator
+import de.hinterland.smartreceptionist.story.WaitingStory
 import de.hinterland.smartreceptionist.guide.guideLinesFor
 import de.hinterland.smartreceptionist.net.BackendClient
 import de.hinterland.smartreceptionist.net.BackendException
@@ -39,6 +41,9 @@ import de.hinterland.smartreceptionist.voice.linesFor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -104,6 +109,15 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
     private var rearmAt = 0L
     private var needPersonGone = false
     private var lastBlockedSay = 0L
+
+    /** Ziel der laufenden Begleitfahrt – nur dann werden Abstecher-Wünsche angenommen */
+    @Volatile private var escortTarget: String? = null
+    /** Vom Besucher unterwegs gewünschter Abstecher; unterbricht die laufende Fahrt */
+    @Volatile private var pendingDetour: Destination? = null
+    /** > 0, solange der Roboter spricht */
+    @Volatile private var speakingDepth = 0
+    /** Geschichte im Warteraum läuft: ✕ beendet nur sie, danach fährt der Roboter zurück */
+    @Volatile private var storyActive = false
 
     init {
         showIdle()
@@ -171,7 +185,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setAdminOpen(open: Boolean) {
         adminOpen = open
-        if (open) cancel()
+        if (open) hardCancel()
     }
 
     // ============================================================ Eingänge (UI/SDK)
@@ -179,7 +193,11 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
     fun onAsr(text: String, final: Boolean) {
         if (text.isBlank() || adminOpen) return
         val phase = _ui.value.phase
-        if (phase == Phase.ESCORT || phase == Phase.RETURNING) return
+        if (phase == Phase.ESCORT) {
+            if (final) onEscortSpeech(text)
+            return
+        }
+        if (phase == Phase.RETURNING) return
         _ui.update { it.copy(heard = text) }
         if (!final) return
         if (phase == Phase.IDLE) {
@@ -192,6 +210,18 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Besucher spricht während der Begleitung. Nur ein eindeutiger Ortswunsch zählt (siehe [Detour]);
+     * solange der Roboter selbst spricht, wird nichts ausgewertet (er würde sich sonst selbst hören).
+     */
+    private fun onEscortSpeech(text: String) {
+        val target = escortTarget ?: return
+        if (speakingDepth > 0 || pendingDetour != null) return
+        val destination = Detour.request(text, catalog(), target) ?: return
+        pendingDetour = destination
+        RobotController.stopNavigation()
+    }
+
     fun onScreenTap() {
         if (!adminOpen && _ui.value.phase == Phase.IDLE && conversationJob?.isActive != true) startConversation(null)
     }
@@ -201,6 +231,14 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
     fun pickEmployee(e: Employee) = inputs.trySend(UserInput.PickEmployee(e))
 
     fun cancel() {
+        if (storyActive) {
+            inputs.trySend(UserInput.Cancel)
+            return
+        }
+        hardCancel()
+    }
+
+    private fun hardCancel() {
         runCatching { AgentCore.stopTTS() }
         cancelConversation()
     }
@@ -258,7 +296,10 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         healthJob = viewModelScope.launch {
             while (isActive) {
                 val ok = runCatching { backend.health() }.onSuccess { h ->
-                    if (h.company.isNotBlank()) companyName = h.company
+                    if (h.company.isNotBlank() && h.company != companyName) {
+                        companyName = h.company
+                        if (_ui.value.phase == Phase.IDLE) showIdle()
+                    }
                 }.isSuccess
                 _ui.update { it.copy(backendOk = ok) }
                 delay(if (ok) 30_000 else 10_000)
@@ -273,7 +314,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
             UiState(
                 phase = Phase.IDLE,
                 mood = Mood.HAPPY,
-                title = l.idleTitle,
+                title = l.idleWelcome(companyName),
                 subtitle = l.idleSubtitle,
                 backendOk = it.backendOk,
                 robotOk = it.robotOk,
@@ -315,6 +356,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
     /** Spricht [text] und wartet, bis die Ausgabe fertig ist. */
     private suspend fun say(text: String) {
         _ui.update { it.copy(caption = text, mood = if (it.mood == Mood.JOY || it.mood == Mood.SAD) it.mood else Mood.SPEAKING) }
+        speakingDepth++
         try {
             val result = withTimeoutOrNull(20_000L + text.length * 120L) {
                 AgentCore.ttsSync(text, 20_000L + text.length * 120L)
@@ -327,6 +369,8 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
             // Ohne AgentOS (z. B. Emulator): Lesezeit simulieren, damit der Ablauf weiterläuft.
             Log.w(TAG, "TTS nicht verfügbar", t)
             delay(800L + text.length * 45L)
+        } finally {
+            speakingDepth--
         }
     }
 
@@ -471,7 +515,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun checkIn(firstUtterance: String?) {
         val l = lines
         val visit = Visit()
-        setScreen(title = l.idleTitle, mood = Mood.JOY)
+        setScreen(title = l.idleWelcome(companyName), mood = Mood.JOY)
         RobotController.resetHead()
         val greeting = l.greeting(companyName, settings.robotName)
         if (firstUtterance != null) {
@@ -627,6 +671,8 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
                     is UserInput.PickEmployee -> return input.employee
                     is UserInput.Typed -> query = input.text
                     is UserInput.Voice -> {
+                        // „Zeig mir die Mitarbeiterliste“ = Knopf „Alle Mitarbeitenden anzeigen“
+                        if (RuleNlu.wantsEmployeeList(input.text)) return pickFromList(allEmployees(), l.chooseEmployee)
                         val u = interpret(input, Step.EMPLOYEE, question)
                         if (u?.wantsCancel == true) { say(l.goodbye); return null }
                         query = u?.employeeName
@@ -942,20 +988,18 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
             say(l.navFailed)
             return
         }
-        runCatching { AgentCore.isMicrophoneMuted = true }
+        // Das Mikrofon bleibt an: Besucher dürfen unterwegs nach einem anderen Ort fragen (Abstecher)
         try {
-            val result = navigator.navigateTo(waitingRoom, settings.escortSpeed) { event -> onNavEvent(event) }
+            val result = navigateWithDetours(waitingRoom, waitingRoom, settings.escortSpeed)
             when (result) {
                 is NavResult.Arrived -> {
-                    runCatching { AgentCore.isMicrophoneMuted = false }
                     setScreen(title = "", subtitle = waitingRoom, mood = Mood.JOY, phase = Phase.ESCORT)
                     say(arrivedLine ?: employee?.let { l.arrivedWaitingRoom(it.name) } ?: l.arrivedWaitingRoomGeneric)
-                    delay(settings.waitingRoomPauseSec * 1000L)
+                    if (!offerStory()) delay(settings.waitingRoomPauseSec * 1000L)
                 }
                 is NavResult.Cancelled -> return
                 is NavResult.Failed -> {
                     Log.w(TAG, "Fahrt zum Warteraum fehlgeschlagen: ${result.code} ${result.message}")
-                    runCatching { AgentCore.isMicrophoneMuted = false }
                     _ui.update { it.copy(banner = "Waiting room: ${result.message}") }
                     setMood(Mood.SAD)
                     say(l.navFailed)
@@ -965,6 +1009,105 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         } finally {
             runCatching { AgentCore.isMicrophoneMuted = false }
         }
+    }
+
+    /**
+     * Fährt zu [target]. Fragt der Besucher unterwegs nach einem anderen Ort ([onEscortSpeech]),
+     * wird die Fahrt gestoppt, der Besucher dorthin gebracht, kurz gewartet und danach die
+     * ursprüngliche Fahrt fortgesetzt. Der Stopp-Knopf bricht alles ab (Coroutine wird abgebrochen).
+     */
+    private suspend fun navigateWithDetours(target: String, targetLabel: String, speed: Float): NavResult {
+        val g = guideLines
+        try {
+            while (true) {
+                escortTarget = target
+                val result = navigator.navigateTo(target, speed) { event -> onNavEvent(event) }
+                val detour = pendingDetour
+                if (detour == null || result is NavResult.Arrived) return result
+                pendingDetour = null
+                escortTarget = null // unterwegs zum Abstecher keine weiteren Wünsche annehmen
+                val label = g.label(detour)
+                setScreen(title = lines.followMeTitle, subtitle = label, mood = Mood.JOY, phase = Phase.ESCORT)
+                say(g.startGuiding(detour))
+                when (val detourResult = navigator.navigateTo(detour.name, speed) { event -> onNavEvent(event) }) {
+                    is NavResult.Arrived -> {
+                        setScreen(title = "", subtitle = label, mood = Mood.JOY, phase = Phase.ESCORT)
+                        say(g.detourWait)
+                        delay(DETOUR_WAIT_MS)
+                    }
+                    is NavResult.Cancelled -> return detourResult
+                    is NavResult.Failed -> {
+                        Log.w(TAG, "Abstecher zu ${detour.name} fehlgeschlagen: ${detourResult.code} ${detourResult.message}")
+                        setMood(Mood.SAD)
+                        say(g.navFailed(detour))
+                    }
+                }
+                setScreen(title = lines.followMeTitle, subtitle = targetLabel, mood = Mood.JOY, phase = Phase.ESCORT)
+                say(g.detourResume)
+            }
+        } finally {
+            escortTarget = null
+            pendingDetour = null
+        }
+    }
+
+    // ============================================== Geschichte im Warteraum
+    /**
+     * Bietet im Warteraum eine kurze Geschichte über die Founders Foundation an und erzählt sie auf Wunsch.
+     * Der Besucher kann jederzeit „Stopp“ sagen oder ✕ tippen. Liefert true, wenn die Geschichte
+     * angeboten wurde (egal ob angenommen) – die übliche Wartezeit entfällt dann.
+     */
+    private suspend fun offerStory(): Boolean {
+        if (!settings.waitingStory) return false
+        val parts = WaitingStory.parts(settings.isGerman, settings.waitingStoryText)
+        if (parts.isEmpty()) return false
+        val s = WaitingStory.lines(settings.isGerman)
+        storyActive = true
+        try {
+            val answer = ask(
+                s.offer,
+                title = s.title,
+                options = listOf(UiOption(OPT_STORY_YES, s.optYes, primary = true), UiOption(OPT_STORY_NO, s.optNo)),
+                allowGuide = false,
+            )
+            val wants = when (answer) {
+                is UserInput.Option -> answer.id == OPT_STORY_YES
+                is UserInput.Voice, is UserInput.Typed -> interpret(answer, Step.YES_NO, s.offer)?.answer == true
+                else -> false
+            }
+            if (!wants) return true
+            drainInputs()
+            for (part in parts) {
+                setScreen(title = s.title, subtitle = part, mood = Mood.SPEAKING)
+                if (sayUnlessStopped(part)) break
+            }
+            return true
+        } finally {
+            storyActive = false
+        }
+    }
+
+    /** Spricht [text]; true, wenn der Besucher unterwegs „Stopp“ gesagt oder ✕ getippt hat. */
+    private suspend fun sayUnlessStopped(text: String): Boolean = coroutineScope {
+        val speech = async { say(text); false }
+        val stop = async {
+            while (true) {
+                val input = inputs.receive()
+                val wantsStop = input is UserInput.Cancel ||
+                    (input is UserInput.Voice && RuleNlu.wantsCancel(input.text)) ||
+                    (input is UserInput.Typed && RuleNlu.wantsCancel(input.text))
+                if (wantsStop) return@async true
+            }
+            @Suppress("UNREACHABLE_CODE") false
+        }
+        val stopped = select<Boolean> {
+            speech.onAwait { it }
+            stop.onAwait { it }
+        }
+        speech.cancel()
+        stop.cancel()
+        if (stopped) runCatching { AgentCore.stopTTS() }
+        stopped
     }
 
     private suspend fun returnToReception() {
@@ -1241,21 +1384,19 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
 
         setScreen(title = l.followMeTitle, subtitle = label, mood = Mood.JOY, phase = Phase.ESCORT)
         say(g.startGuiding(destination))
-        // Während der Fahrt nicht zuhören (Motorgeräusche, Passanten …)
-        runCatching { AgentCore.isMicrophoneMuted = true }
+        // Das Mikrofon bleibt an: Besucher dürfen unterwegs nach einem anderen Ort fragen (Abstecher)
         try {
-            when (val result = navigator.navigateTo(destination.name, settings.escortSpeed) { event -> onNavEvent(event) }) {
+            when (val result = navigateWithDetours(destination.name, label, settings.escortSpeed)) {
                 is NavResult.Arrived -> {
-                    runCatching { AgentCore.isMicrophoneMuted = false }
                     setScreen(title = "", subtitle = label, mood = Mood.JOY, phase = Phase.ESCORT)
                     say(g.arrived(destination))
                     val pauseSec = if (destination.kind == PlaceKind.WAITING_ROOM) settings.waitingRoomPauseSec else 2
-                    if (destination.kind != PlaceKind.RECEPTION) delay(pauseSec * 1000L)
+                    val toldStory = destination.kind == PlaceKind.WAITING_ROOM && offerStory()
+                    if (!toldStory && destination.kind != PlaceKind.RECEPTION) delay(pauseSec * 1000L)
                 }
                 is NavResult.Cancelled -> return
                 is NavResult.Failed -> {
                     Log.w(TAG, "Fahrt zu ${destination.name} fehlgeschlagen: ${result.code} ${result.message}")
-                    runCatching { AgentCore.isMicrophoneMuted = false }
                     _ui.update { it.copy(banner = "${destination.name}: ${result.message}") }
                     setMood(Mood.SAD)
                     say(g.navFailed(destination))
@@ -1281,6 +1422,8 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
 
     companion object {
         private const val TAG = "ReceptionFlow"
+        /** So lange wartet der Roboter nach einem Abstecher (z. B. Toilette), bevor es weitergeht */
+        private const val DETOUR_WAIT_MS = 15_000L
         const val OPT_APPOINTMENT = "intent:appointment"
         const val OPT_WALK_IN = "intent:walk_in"
         const val OPT_BOOK = "intent:book"
@@ -1293,6 +1436,8 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         const val OPT_SLOT = "slot:"
         const val OPT_ALL_EMPLOYEES = "employees:all"
         const val OPT_GUIDE = "guide:start"
+        const val OPT_STORY_YES = "story:yes"
+        const val OPT_STORY_NO = "story:no"
         const val OPT_PHOTO_YES = "photo:yes"
         const val OPT_PHOTO_NO = "photo:no"
         const val OPT_PHOTO_OK = "photo:ok"

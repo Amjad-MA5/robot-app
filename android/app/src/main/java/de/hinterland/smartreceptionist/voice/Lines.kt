@@ -13,6 +13,8 @@ interface Lines {
 
     // Ruhezustand
     val idleTitle: String
+    /** Überschrift auf dem Startbildschirm, mit Firmenname */
+    fun idleWelcome(company: String): String
     val idleSubtitle: String
 
     fun greeting(company: String, robot: String): String
@@ -120,13 +122,14 @@ interface Lines {
 object GermanLines : Lines {
     override val locale: Locale = Locale.GERMANY
     override val idleTitle = "Herzlich willkommen!"
+    override fun idleWelcome(company: String) = if (company.isBlank()) idleTitle else "Herzlich willkommen bei $company!"
     override val idleSubtitle = "Sprechen Sie mich an oder tippen Sie auf den Bildschirm."
     override fun greeting(company: String, robot: String) =
         "Hallo und herzlich willkommen bei $company! Ich bin $robot, die digitale Empfangskraft."
 
-    override val askAppointment = "Haben Sie einen Termin bei uns?"
-    override val optHaveAppointment = "Ja, ich habe einen Termin"
-    override val optWalkIn = "Nein, ich möchte jemanden sprechen"
+    override val askAppointment = "Wie können wir Ihnen helfen?"
+    override val optHaveAppointment = "Ich habe einen Termin"
+    override val optWalkIn = "Ich möchte jemanden sprechen"
     override val optBook = "Ich möchte einen Termin vereinbaren"
     override val optDelivery = "Ich liefere ein Paket"
     override val askWalkInOrBook = "Möchten Sie jetzt jemanden sprechen oder einen Termin vereinbaren?"
@@ -246,17 +249,18 @@ object GermanLines : Lines {
 object EnglishLines : Lines {
     override val locale: Locale = Locale.UK
     override val idleTitle = "Welcome!"
+    override fun idleWelcome(company: String) = if (company.isBlank()) idleTitle else "Welcome to $company!"
     override val idleSubtitle = "Talk to me or tap the screen."
     override fun greeting(company: String, robot: String) =
-        "Hello and welcome to $company! I'm $robot, the digital receptionist."
+        "Hello and welcome to $company! I am $robot, the digital receptionist."
 
-    override val askAppointment = "Do you have an appointment with us?"
-    override val optHaveAppointment = "Yes, I have an appointment"
-    override val optWalkIn = "No, I'd like to talk to someone"
-    override val optBook = "I'd like to make an appointment"
-    override val optDelivery = "I'm delivering a package"
+    override val askAppointment = "How can we help you?"
+    override val optHaveAppointment = "I have an appointment"
+    override val optWalkIn = "I would like to talk to someone"
+    override val optBook = "I would like to make an appointment"
+    override val optDelivery = "I am delivering a package"
     override val askWalkInOrBook = "Would you like to talk to someone now, or make an appointment?"
-    override val otherRequest = "I'm sorry, I can't help with that yet – I take care of visitor check-in."
+    override val otherRequest = "I am sorry, I cannot help with that yet – I take care of visitor check-in."
 
     override val askName = "May I have your name, please?"
     override val nameHint = "Your name"
@@ -276,66 +280,66 @@ object EnglishLines : Lines {
     override val photoHint = "Please hold it so the address label is clearly visible."
     override val packagePhotoTitle = "Hold the address label up to the camera"
     override val packagePhotoLookAt = "Please hold the package with the address label in front of my camera."
-    override val packagePhotoUnavailable = "My camera is not available right now. I'll let them know without a photo."
+    override val packagePhotoUnavailable = "My camera is not available right now. I will let them know without a photo."
     override val optPhotoYes = "Yes, take a photo"
     override val optPhotoNo = "No photo"
     override val employeeHint = "Name of your contact"
     override fun employeeNotFound(query: String) =
-        "Sorry, I couldn't find anyone called $query. Please pick from the screen or say the name again."
+        "Sorry, I could not find anyone called $query. Please pick from the screen or say the name again."
     override fun confirmEmployee(name: String) = "Do you mean $name?"
     override val chooseEmployee = "I found several matching people. Please tap the right one."
     override val showAllEmployees = "Show all employees"
     override fun employeeOk(name: String) = "Alright, $name."
 
     override fun deliveryLeaveAtDesk(employee: String) =
-        "Thank you! I've let $employee know. Please leave the package at the reception desk."
+        "Thank you! I have let $employee know. Please leave the package at the reception desk."
     override fun deliveryArrivedWaitingRoom(employee: String) =
         "This is the waiting room. Please wait here – $employee will be with you shortly to take the package and sign for it."
     override fun deliveryWaitForRecipient(employee: String) =
-        "Thank you! I've let $employee know that a signature is needed."
-    override fun arrivalNotified(employee: String) = "Thank you! I've let $employee know that you're here."
+        "Thank you! I have let $employee know that a signature is needed."
+    override fun arrivalNotified(employee: String) = "Thank you! I have let $employee know that you are here."
     override fun arrivalFailed(employee: String) =
-        "Unfortunately I couldn't reach $employee automatically. Please take a seat in the waiting room anyway."
+        "Unfortunately I could not reach $employee automatically. Please take a seat in the waiting room anyway."
 
-    override val followMe = "Please follow me, I'll take you to the waiting room."
+    override val followMe = "Please follow me, I will take you to the waiting room."
     override val followMeTitle = "Please follow me"
     override fun arrivedWaitingRoom(employee: String) =
         "This is our waiting room. Please have a seat – $employee will be with you shortly. Enjoy your stay!"
     override val arrivedWaitingRoomGeneric = "This is our waiting room. Please have a seat. Enjoy your stay!"
     override val returningTitle = "Heading back to reception"
-    override val navFailed = "Sorry, I can't move right now. The waiting room is just nearby – please take a seat there."
+    override val navFailed = "Sorry, I cannot move right now. The waiting room is just nearby – please take a seat there."
     override val pathBlocked = "Excuse me, may I pass, please?"
     override val stopButton = "Stop"
 
     override fun walkInFreeNow(employee: String) =
-        "According to the calendar, $employee is free right now. I've let them know you're here and would like to talk."
+        "According to the calendar, $employee is free right now. I have let them know you are here and would like to talk."
     override fun walkInLater(employee: String, time: String) =
-        "$employee is free today from $time. I've let them know you asked for a conversation."
+        "$employee is free today from $time. I have let them know you asked for a conversation."
     override fun walkInNotifyFailed(employee: String) =
-        "$employee still has time today, but unfortunately I couldn't send a message right now."
+        "$employee still has time today, but unfortunately I could not send a message right now."
     override val askEscort = "Would you like to take a seat in the waiting room?"
     override val optEscortYes = "Yes, please take me there"
     override val optEscortNo = "No, thank you"
 
     override fun notAvailableToday(employee: String) =
-        "Unfortunately $employee is fully booked today. But I'm happy to offer you an appointment."
+        "Unfortunately $employee is fully booked today. But I am happy to offer you an appointment."
     override fun proposeSlot(employee: String, slot: String) = "The next free slot with $employee is $slot. Does that work for you?"
     override val moreSlotsOnScreen = "You can see more options on the screen."
     override val optMoreSlots = "Later dates"
     override fun noSlots(employee: String) =
-        "Sorry, I couldn't find a free slot with $employee in the next days. Please contact $employee directly."
+        "Sorry, I could not find a free slot with $employee in the next days. Please contact $employee directly."
     override fun booked(employee: String, slot: String) =
-        "Wonderful! I've booked the appointment $slot with $employee, and $employee has been notified."
+        "Wonderful! I have booked the appointment $slot with $employee, and $employee has been notified."
     override val bookFailed = "Sorry, the appointment could not be booked."
     override val slotTaken = "That slot was just taken. Let me look for another one."
 
     override val goodbye = "Thank you for your visit and have a nice day!"
-    override val didNotUnderstand = "Sorry, I didn't catch that."
+    override val didNotUnderstand = "Sorry, I did not catch that."
     override val stillThere = "Are you still there?"
-    override val noResponse = "I'm here if you need me."
-    override val backendDown = "Sorry, I can't reach our system right now."
+    override val noResponse = "I am here if you need me."
+    override val backendDown = "Sorry, I cannot reach our system right now."
     override val thinking = "One moment …"
-    override val listening = "I'm listening …"
+    override val listening = "I am listening …"
     override val yes = "Yes"
     override val no = "No"
     override val cancel = "Cancel"

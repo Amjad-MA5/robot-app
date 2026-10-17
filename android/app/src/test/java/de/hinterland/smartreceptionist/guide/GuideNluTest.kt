@@ -115,6 +115,6 @@ class GuideNluTest {
         assertEquals("Den Warteraum habe ich leider noch nicht auf meiner Karte. Wohin darf ich Sie sonst bringen?",
             GermanGuideLines.notOnMap(PlaceKind.WAITING_ROOM))
         assertEquals("Büro", GermanGuideLines.label(catalog.byName("Office")!!))
-        assertEquals("Of course! Please follow me, I'll take you to the restrooms.", EnglishGuideLines.startGuiding(restroom))
+        assertEquals("Of course! Please follow me, I will take you to the restrooms.", EnglishGuideLines.startGuiding(restroom))
     }
 }

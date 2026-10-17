@@ -25,6 +25,6 @@ services:
       - key: SR_API_KEY
         generateValue: true
       - key: SR_COMPANY_NAME
-        value: Hinterland Hack
+        value: Founders Foundation
       - key: SR_TIMEZONE
         value: Europe/Berlin
