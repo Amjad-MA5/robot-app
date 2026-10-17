@@ -7,6 +7,16 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ainirobot.agent.AgentCore
 import de.hinterland.smartreceptionist.config.AppSettings
+import de.hinterland.smartreceptionist.guide.Destination
+import de.hinterland.smartreceptionist.guide.GuideLines
+import de.hinterland.smartreceptionist.guide.GuideNlu
+import de.hinterland.smartreceptionist.guide.GuideRequest
+import de.hinterland.smartreceptionist.guide.Navigator
+import de.hinterland.smartreceptionist.guide.PlaceCache
+import de.hinterland.smartreceptionist.guide.PlaceCatalog
+import de.hinterland.smartreceptionist.guide.PlaceKind
+import de.hinterland.smartreceptionist.guide.RobotNavigator
+import de.hinterland.smartreceptionist.guide.guideLinesFor
 import de.hinterland.smartreceptionist.net.BackendClient
 import de.hinterland.smartreceptionist.net.BackendException
 import de.hinterland.smartreceptionist.net.Employee
@@ -44,6 +54,10 @@ import java.time.temporal.ChronoUnit
  *   ② ohne Termin:       Kalender prüfen → heute frei? Mitarbeiter informieren (→ optional Warteraum)
  *   ③ Termin vereinbaren: freie Termine aus dem Kalender vorschlagen → eintragen
  *
+ * Wegweiser: Fragt der Besucher jederzeit nach einem Ort („Wo ist die Toilette?“,
+ * „Bringen Sie mich zum Ausgang“), begleitet ihn der Roboter zu diesem Kartenpunkt
+ * und fährt danach zurück zum Empfang (siehe Paket guide und [guideVisitor]).
+ *
  * Jede Frage kann per Sprache ODER Touch beantwortet werden.
  */
 class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
@@ -57,6 +71,18 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
     private var backend = BackendClient(settings.backendUrl, settings.apiKey)
     private var companyName: String = settings.companyName
     private val understander = Understander { settings.useLlm }
+
+    /** Fahrwerk (austauschbar für Tests/Simulation) */
+    internal var navigator: Navigator = RobotNavigator
+    private val placeCache = PlaceCache(source = { navigator.places() })
+    private val guideLines: GuideLines get() = guideLinesFor(settings.language)
+
+    /** Kartenpunkte nach Art sortiert – aus dem Zwischenspeicher, ohne zu warten */
+    private fun catalog(): PlaceCatalog = PlaceCatalog(placeCache.cached, settings.waitingRoom, settings.receptionPoint)
+
+    /** Wie [catalog], lädt die Punkte aber vorher neu, wenn sie älter als eine Minute sind */
+    private suspend fun freshCatalog(force: Boolean = false): PlaceCatalog =
+        PlaceCatalog(withContext(Dispatchers.IO) { placeCache.get(force) }, settings.waitingRoom, settings.receptionPoint)
 
     private val inputs = Channel<UserInput>(Channel.UNLIMITED)
     private var conversationJob: Job? = null
@@ -92,6 +118,13 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         RobotController.resetHead()
         startDetection()
         startHealthChecks()
+        // Kartenpunkte vorab laden, damit Wegfragen sofort erkannt werden
+        viewModelScope.launch {
+            repeat(10) {
+                if (freshCatalog(force = true).destinations.isNotEmpty()) return@launch
+                delay(3_000) // RobotAPI verbindet sich evtl. erst nach dem Start
+            }
+        }
     }
 
     fun onBackground() {
@@ -304,6 +337,10 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         input: TextInput? = null,
         employees: List<Employee> = emptyList(),
         timeoutMs: Long = 18_000,
+        /** Fragt der Besucher hier nach einem Ort, wird die Anmeldung unterbrochen ([GuideInterrupt]) */
+        allowGuide: Boolean = true,
+        /** Auch ein bloßer Ortsname („Toilette?“) zählt als Wegfrage – nur bei offenen Fragen sinnvoll */
+        shortGuideOk: Boolean = false,
     ): UserInput? {
         drainInputs()
         setScreen(title, subtitle, options, input, employees)
@@ -320,6 +357,14 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
                     if (speech.isActive) {
                         runCatching { AgentCore.stopTTS() }
                         speech.cancel()
+                    }
+                    if (allowGuide && received is UserInput.Voice) {
+                        GuideNlu.detect(
+                            received.text,
+                            catalog(),
+                            inCheckIn = !shortGuideOk,
+                            mentionsVisitPurpose = RuleNlu.intent(received.text) != null,
+                        )?.let { throw GuideInterrupt(it, received.text) }
                     }
                     if (received is UserInput.Voice || received is UserInput.Typed) setMood(Mood.THINKING)
                     return received
@@ -351,7 +396,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         }
         _ui.update { it.copy(heard = text, mood = Mood.THINKING) }
         val labels = slots.map { lines.formatSlot(it.start, LocalDate.now(it.start.offset)) }
-        return understander.understand(text, step, question, slots.map { it.start }, labels)
+        return understander.understand(text, step, question, slots.map { it.start }, labels, catalog().names())
     }
 
     // ================================================================== Gespräch
@@ -391,7 +436,29 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Unterbricht die Anmeldung, weil der Besucher nach einem Ort gefragt hat. */
+    private class GuideInterrupt(val request: GuideRequest, val utterance: String?) : Exception()
+
     private suspend fun conversation(firstUtterance: String?) {
+        try {
+            checkIn(firstUtterance)
+        } catch (g: GuideInterrupt) {
+            guideVisitor(g.request, g.utterance)
+        }
+    }
+
+    /** Wegfrage per Regeln oder (falls aktiv) per Sprachmodell erkennen. */
+    private fun guideFrom(text: String, u: Understanding?, catalog: PlaceCatalog): GuideRequest? {
+        GuideNlu.detect(text, catalog, inCheckIn = false, mentionsVisitPurpose = RuleNlu.intent(text) != null)?.let { return it }
+        if (u == null || !u.wantsGuide) return null
+        val fromLlm = u.destination?.let { catalog.byName(it) }
+        return when {
+            fromLlm != null -> GuideRequest(listOf(fromLlm), fromLlm.kind)
+            else -> catalog.match(text) ?: GuideRequest()
+        }
+    }
+
+    private suspend fun checkIn(firstUtterance: String?) {
         val l = lines
         val visit = Visit()
         setScreen(title = "👋 " + l.idleTitle, mood = Mood.JOY)
@@ -399,7 +466,10 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         val greeting = l.greeting(companyName, settings.robotName)
         if (firstUtterance != null) {
             _ui.update { it.copy(heard = firstUtterance, mood = Mood.THINKING) }
-            visit.absorb(understander.understand(firstUtterance, Step.GREETING, greeting))
+            val u = understander.understand(firstUtterance, Step.GREETING, greeting, placeNames = catalog().names())
+            // „Wo ist die Toilette?“ direkt beim Ansprechen → gleich losgehen, ohne Anmeldung
+            guideFrom(firstUtterance, u, catalog())?.let { throw GuideInterrupt(it, firstUtterance) }
+            visit.absorb(u)
         }
         // Begrüßung und erste Frage in einem Satz → keine Pause dazwischen
         if (visit.intent != null) say(greeting)
@@ -435,15 +505,21 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
                 UiOption(OPT_APPOINTMENT, l.optHaveAppointment, primary = true),
                 UiOption(OPT_WALK_IN, l.optWalkIn),
                 UiOption(OPT_BOOK, l.optBook),
+                UiOption(OPT_GUIDE, guideLines.optGuide),
             )
-            val input = ask(l.askAppointment, preface = greetingFirst, options = options) ?: return noResponse()
+            val input = ask(l.askAppointment, preface = greetingFirst, options = options, shortGuideOk = true) ?: return noResponse()
             greetingFirst = null
             when (input) {
-                is UserInput.Option -> visit.intent = intentFromOption(input.id)
+                is UserInput.Option -> {
+                    if (input.id == OPT_GUIDE) throw GuideInterrupt(GuideRequest(), null)
+                    visit.intent = intentFromOption(input.id)
+                }
                 is UserInput.Cancel -> return false
                 is UserInput.Voice, is UserInput.Typed -> {
                     val u = interpret(input, Step.INTENT, l.askAppointment) ?: continue
                     if (u.wantsCancel) { say(l.goodbye); return false }
+                    val text = (input as? UserInput.Voice)?.text ?: (input as UserInput.Typed).text
+                    guideFrom(text, u, catalog())?.let { throw GuideInterrupt(it, text) }
                     visit.absorb(u)
                     if (visit.intent == null) {
                         when (u.answer) {
@@ -777,20 +853,22 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
     // =========================================== Begleitung in den Warteraum
     private suspend fun escortToWaitingRoom(employee: Employee?) {
         val l = lines
-        setScreen(title = l.followMeTitle, subtitle = settings.waitingRoom, mood = Mood.JOY, phase = Phase.ESCORT)
+        // Eingestellter Name oder ein Kartenpunkt, der nach Warteraum klingt („Waiting Room“, „Lounge“ …)
+        val waitingRoom = freshCatalog().waitingRoom()?.name ?: settings.waitingRoom
+        setScreen(title = l.followMeTitle, subtitle = waitingRoom, mood = Mood.JOY, phase = Phase.ESCORT)
         say(l.followMe)
-        if (!RobotController.connected.value) {
+        if (!navigator.isConnected) {
             _ui.update { it.copy(banner = "RobotAPI is not connected — navigation is unavailable") }
             say(l.navFailed)
             return
         }
         runCatching { AgentCore.isMicrophoneMuted = true }
         try {
-            val result = RobotController.navigateTo(settings.waitingRoom, settings.escortSpeed) { event -> onNavEvent(event) }
+            val result = navigator.navigateTo(waitingRoom, settings.escortSpeed) { event -> onNavEvent(event) }
             when (result) {
                 is NavResult.Arrived -> {
                     runCatching { AgentCore.isMicrophoneMuted = false }
-                    setScreen(title = "🙂", subtitle = settings.waitingRoom, mood = Mood.JOY, phase = Phase.ESCORT)
+                    setScreen(title = "🙂", subtitle = waitingRoom, mood = Mood.JOY, phase = Phase.ESCORT)
                     say(employee?.let { l.arrivedWaitingRoom(it.name) } ?: l.arrivedWaitingRoomGeneric)
                     delay(settings.waitingRoomPauseSec * 1000L)
                 }
@@ -811,9 +889,10 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
 
     private suspend fun returnToReception() {
         val l = lines
-        setScreen(title = l.returningTitle, subtitle = settings.receptionPoint, mood = Mood.HAPPY, phase = Phase.RETURNING)
+        val reception = catalog().reception()?.name ?: settings.receptionPoint
+        setScreen(title = l.returningTitle, subtitle = reception, mood = Mood.HAPPY, phase = Phase.RETURNING)
         runCatching { AgentCore.isMicrophoneMuted = true }
-        val result = RobotController.navigateTo(settings.receptionPoint, settings.returnSpeed) { event -> onNavEvent(event) }
+        val result = navigator.navigateTo(reception, settings.returnSpeed) { event -> onNavEvent(event) }
         runCatching { AgentCore.isMicrophoneMuted = false }
         if (result is NavResult.Failed) {
             Log.w(TAG, "Rückfahrt fehlgeschlagen: ${result.code} ${result.message}")
@@ -830,6 +909,133 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
                 // Kurze Bitte ohne zu warten (Fahrt läuft weiter)
                 runCatching { AgentCore.tts(lines.pathBlocked, 8000L, null) }
             }
+        }
+    }
+
+    // ======================================================= Wegweiser
+    /**
+     * Besucher fragt nach einem Ort → Ziel klären → hinbegleiten → zurück zum Empfang.
+     *
+     * @param initial  was bisher erkannt wurde (kann leer sein, dann wird gefragt)
+     * @param utterance die ursprüngliche Frage – wird nach dem Neuladen der Karte erneut ausgewertet
+     */
+    private suspend fun guideVisitor(initial: GuideRequest, utterance: String?) {
+        val g = guideLines
+        setScreen(title = g.askWhere, mood = Mood.THINKING)
+        val catalog = freshCatalog()
+        if (catalog.isEmpty) {
+            setMood(Mood.SAD)
+            say(if (navigator.isConnected) g.noPlaces else g.robotOffline)
+            return
+        }
+        // Kartenpunkte können sich seit der Erkennung geändert haben → mit frischer Karte neu zuordnen
+        var request = utterance?.let { catalog.match(it) } ?: initial
+        if (request.candidates.isEmpty() && initial.candidates.isNotEmpty()) {
+            request = GuideRequest(initial.candidates.mapNotNull { catalog.byName(it.name) }, initial.kind)
+        }
+
+        val wantedKind = request.kind
+        val destination: Destination = when {
+            request.candidates.size == 1 -> request.candidates.first()
+            request.candidates.size > 1 -> chooseDestination(catalog, request.candidates, g.whichOne(wantedKind ?: PlaceKind.OTHER), null)
+            // Ort erkannt, aber nicht auf der Karte (z. B. Warteraum noch nicht angelegt)
+            wantedKind != null -> chooseDestination(catalog, catalog.touchDestinations(), g.askWhere, g.notOnMap(wantedKind))
+            else -> chooseDestination(catalog, catalog.touchDestinations(), g.askWhere, null)
+        } ?: return
+        guideTo(destination)
+    }
+
+    /** Ziel per Touch oder Sprache auswählen lassen. null = abgebrochen / keine Antwort. */
+    private suspend fun chooseDestination(
+        catalog: PlaceCatalog,
+        choices: List<Destination>,
+        question: String,
+        preface: String?,
+    ): Destination? {
+        val g = guideLines
+        var spokenPreface = preface
+        repeat(3) {
+            val options = choices.mapIndexed { i, d -> UiOption(OPT_PLACE + d.name, g.label(d), primary = i == 0) }
+            val input = ask(question, preface = spokenPreface, subtitle = g.chooseOnScreen, options = options, allowGuide = false)
+                ?: run {
+                    say(lines.noResponse)
+                    return null
+                }
+            spokenPreface = null
+            when (input) {
+                is UserInput.Option -> catalog.byName(input.id.removePrefix(OPT_PLACE))?.let { return it }
+                is UserInput.Cancel -> return null
+                is UserInput.Voice, is UserInput.Typed -> {
+                    val text = (input as? UserInput.Voice)?.text ?: (input as UserInput.Typed).text
+                    if (RuleNlu.wantsCancel(text)) {
+                        say(lines.goodbye)
+                        return null
+                    }
+                    val byRules = catalog.match(text)
+                    val kind = byRules?.kind
+                    when {
+                        byRules != null && byRules.candidates.size == 1 -> return byRules.candidates.first()
+                        byRules != null && byRules.candidates.size > 1 ->
+                            return chooseDestination(catalog, byRules.candidates, g.whichOne(kind ?: PlaceKind.OTHER), null)
+                        kind != null -> spokenPreface = g.notOnMap(kind)
+                        else -> {
+                            // Sprachmodell als zweite Meinung (versteht z. B. „Ich muss mal für kleine Mädchen“)
+                            val u = interpret(input, Step.GREETING, question)
+                            u?.destination?.let { name -> catalog.byName(name)?.let { return it } }
+                            spokenPreface = g.unknownPlace
+                        }
+                    }
+                }
+                else -> Unit
+            }
+        }
+        return null
+    }
+
+    /** Begleitet den Besucher zu [destination] und fährt danach zurück zum Empfang. */
+    private suspend fun guideTo(destination: Destination) {
+        val l = lines
+        val g = guideLines
+        val label = g.label(destination)
+
+        val distance = withContext(Dispatchers.IO) { navigator.distanceTo(destination.name) }
+        if (distance != null && distance < ALREADY_THERE_M) {
+            setScreen(title = "🙂", subtitle = label, mood = Mood.JOY)
+            say(g.alreadyHere(destination))
+            return
+        }
+        if (!navigator.isConnected) {
+            setScreen(title = label, mood = Mood.SAD)
+            say(g.robotOffline)
+            return
+        }
+
+        setScreen(title = l.followMeTitle, subtitle = label, mood = Mood.JOY, phase = Phase.ESCORT)
+        say(g.startGuiding(destination))
+        // Während der Fahrt nicht zuhören (Motorgeräusche, Passanten …)
+        runCatching { AgentCore.isMicrophoneMuted = true }
+        try {
+            when (val result = navigator.navigateTo(destination.name, settings.escortSpeed) { event -> onNavEvent(event) }) {
+                is NavResult.Arrived -> {
+                    runCatching { AgentCore.isMicrophoneMuted = false }
+                    setScreen(title = "🙂", subtitle = label, mood = Mood.JOY, phase = Phase.ESCORT)
+                    say(g.arrived(destination))
+                    val pauseSec = if (destination.kind == PlaceKind.WAITING_ROOM) settings.waitingRoomPauseSec else 2
+                    if (destination.kind != PlaceKind.RECEPTION) delay(pauseSec * 1000L)
+                }
+                is NavResult.Cancelled -> return
+                is NavResult.Failed -> {
+                    Log.w(TAG, "Fahrt zu ${destination.name} fehlgeschlagen: ${result.code} ${result.message}")
+                    runCatching { AgentCore.isMicrophoneMuted = false }
+                    _ui.update { it.copy(banner = "${destination.name}: ${result.message}") }
+                    setMood(Mood.SAD)
+                    say(g.navFailed(destination))
+                }
+            }
+            // Am Empfang ist der Roboter zu Hause – sonst wieder zurückfahren
+            if (destination.kind != PlaceKind.RECEPTION) returnToReception()
+        } finally {
+            runCatching { AgentCore.isMicrophoneMuted = false }
         }
     }
 
@@ -854,6 +1060,11 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         const val OPT_MORE = "slots:more"
         const val OPT_SLOT = "slot:"
         const val OPT_ALL_EMPLOYEES = "employees:all"
+        const val OPT_GUIDE = "guide:start"
+        const val OPT_PLACE = "place:"
+
+        /** Näher als das (Meter) am Ziel → „Wir sind schon da“ statt loszufahren */
+        private const val ALREADY_THERE_M = 1.0
 
         /** Name säubern; Unsinn ("unknown", Einzelbuchstaben) verwerfen. */
         fun cleanName(raw: String?): String? {
