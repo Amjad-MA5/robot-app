@@ -56,7 +56,7 @@ fun PinDialog(expectedPin: String, onSuccess: () -> Unit, onDismiss: () -> Unit)
     var wrong by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Admin-Bereich") },
+        title = { Text("Admin area") },
         text = {
             Column {
                 OutlinedTextField(
@@ -67,13 +67,13 @@ fun PinDialog(expectedPin: String, onSuccess: () -> Unit, onDismiss: () -> Unit)
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                 )
-                if (wrong) Text("Falsche PIN", color = Palette.Error, fontSize = 12.sp)
+                if (wrong) Text("Incorrect PIN", color = Palette.Error, fontSize = 12.sp)
             }
         },
         confirmButton = {
-            TextButton(onClick = { if (pin == expectedPin) onSuccess() else wrong = true }) { Text("Öffnen") }
+            TextButton(onClick = { if (pin == expectedPin) onSuccess() else wrong = true }) { Text("Open") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Abbrechen") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 
@@ -99,33 +99,33 @@ fun AdminScreen(initial: AppSettings, onSave: (AppSettings) -> Unit, onClose: ()
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("⚙️ Einstellungen", color = Palette.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            OutlinedButton(onClick = onClose) { Text("Schließen", color = Palette.Text) }
+            Text("⚙️ Settings", color = Palette.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            OutlinedButton(onClick = onClose) { Text("Close", color = Palette.Text) }
             Spacer(Modifier.width(6.dp))
-            Button(onClick = { onSave(s); addLog("✔ Gespeichert") }) { Text("Speichern") }
+            Button(onClick = { onSave(s); addLog("✔ Saved") }) { Text("Save") }
         }
 
         Section("Backend")
-        Field("Backend-URL (z. B. http://192.168.2.50:8080)", s.backendUrl) { s = s.copy(backendUrl = it) }
-        Field("API-Key", s.apiKey) { s = s.copy(apiKey = it) }
+        Field("Backend URL (e.g. http://192.168.2.50:8080)", s.backendUrl) { s = s.copy(backendUrl = it) }
+        Field("API key", s.apiKey) { s = s.copy(apiKey = it) }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            SmallButton("Verbindung testen") {
+            SmallButton("Test connection") {
                 scope.launch {
                     runCatching { client().health() }
                         .onSuccess { h ->
-                            addLog("✔ Backend erreichbar: ${h.company} (Modus ${h.mode})")
+                            addLog("✔ Backend reachable: ${h.company} (mode ${h.mode})")
                             runCatching { client().allEmployees() }
-                                .onSuccess { addLog("✔ API-Key ok, ${it.size} Mitarbeitende") }
-                                .onFailure { addLog("✖ API-Key/Verzeichnis: ${it.message}") }
+                                .onSuccess { addLog("✔ API key OK, ${it.size} employees") }
+                                .onFailure { addLog("✖ API key/directory: ${it.message}") }
                         }
                         .onFailure { addLog("✖ Backend: ${it.message}") }
                 }
             }
-            SmallButton("App-Update prüfen") {
+            SmallButton("Check for app updates") {
                 scope.launch {
-                    addLog("… prüfe Update")
+                    addLog("… checking for updates")
                     when (val r = AppUpdater.checkAndInstall(context, client()) { }) {
-                        is AppUpdater.Result.UpToDate -> addLog("✔ Aktuell (Version ${r.version})")
+                        is AppUpdater.Result.UpToDate -> addLog("✔ Up to date (version ${r.version})")
                         is AppUpdater.Result.Started -> addLog("⬇ ${r.how}")
                         is AppUpdater.Result.Failed -> addLog("✖ ${r.reason}")
                     }
@@ -133,76 +133,76 @@ fun AdminScreen(initial: AppSettings, onSave: (AppSettings) -> Unit, onClose: ()
             }
         }
 
-        Section("Roboter & Karte")
+        Section("Robot & map")
         Text(
-            "RobotAPI: ${if (RobotController.connected.value) "verbunden" else "nicht verbunden"} · " +
-                "Lokalisiert: ${if (RobotController.isLocalized()) "ja" else "nein/unbekannt"}",
+            "RobotAPI: ${if (RobotController.connected.value) "connected" else "not connected"} · " +
+                "Localized: ${if (RobotController.isLocalized()) "yes" else "no/unknown"}",
             color = Palette.Muted, fontSize = 12.sp,
         )
-        SmallButton("Kartenpunkte laden") {
+        SmallButton("Load map points") {
             scope.launch {
                 places = RobotController.placeNames()
-                addLog(if (places.isEmpty()) "✖ Keine Kartenpunkte (RobotAPI verbunden? Karte geladen?)" else "✔ ${places.size} Kartenpunkte geladen")
+                addLog(if (places.isEmpty()) "✖ No map points (is RobotAPI connected and a map loaded?)" else "✔ Loaded ${places.size} map points")
             }
         }
-        Field("Kartenpunkt Warteraum", s.waitingRoom) { s = s.copy(waitingRoom = it) }
+        Field("Waiting room map point", s.waitingRoom) { s = s.copy(waitingRoom = it) }
         if (places.isNotEmpty()) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 places.forEach { p -> FilterChip(selected = s.waitingRoom == p, onClick = { s = s.copy(waitingRoom = p) }, label = { Text(p, fontSize = 11.sp) }) }
             }
         }
-        Field("Kartenpunkt Empfang (Rückkehr)", s.receptionPoint) { s = s.copy(receptionPoint = it) }
+        Field("Reception map point (return)", s.receptionPoint) { s = s.copy(receptionPoint = it) }
         if (places.isNotEmpty()) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 places.forEach { p -> FilterChip(selected = s.receptionPoint == p, onClick = { s = s.copy(receptionPoint = p) }, label = { Text(p, fontSize = 11.sp) }) }
             }
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            SmallButton("Testfahrt → Warteraum") {
+            SmallButton("Test drive → waiting room") {
                 driveJob?.cancel()
                 driveJob = scope.launch {
-                    addLog("… fahre zu ${s.waitingRoom}")
+                    addLog("… navigating to ${s.waitingRoom}")
                     addLog(describe(RobotController.navigateTo(s.waitingRoom, s.escortSpeed)))
                 }
             }
-            SmallButton("Testfahrt → Empfang") {
+            SmallButton("Test drive → reception") {
                 driveJob?.cancel()
                 driveJob = scope.launch {
-                    addLog("… fahre zu ${s.receptionPoint}")
+                    addLog("… navigating to ${s.receptionPoint}")
                     addLog(describe(RobotController.navigateTo(s.receptionPoint, s.returnSpeed)))
                 }
             }
-            SmallButton("Fahrt stoppen") { driveJob?.cancel(); RobotController.stopNavigation(); addLog("■ gestoppt") }
+            SmallButton("Stop driving") { driveJob?.cancel(); RobotController.stopNavigation(); addLog("■ Stopped") }
         }
-        LabeledSlider("Begleit-Tempo: %.2f m/s".format(s.escortSpeed), s.escortSpeed, 0.2f..0.85f) { s = s.copy(escortSpeed = it) }
-        LabeledSlider("Rückfahrt-Tempo: %.2f m/s".format(s.returnSpeed), s.returnSpeed, 0.2f..0.85f) { s = s.copy(returnSpeed = it) }
-        LabeledSlider("Begrüßungs-Abstand: %.1f m".format(s.greetDistance), s.greetDistance, 0.8f..3.5f) { s = s.copy(greetDistance = it) }
-        LabeledSlider("Pause im Warteraum: ${s.waitingRoomPauseSec} s", s.waitingRoomPauseSec.toFloat(), 0f..15f) {
+        LabeledSlider("Escort speed: %.2f m/s".format(s.escortSpeed), s.escortSpeed, 0.2f..0.85f) { s = s.copy(escortSpeed = it) }
+        LabeledSlider("Return speed: %.2f m/s".format(s.returnSpeed), s.returnSpeed, 0.2f..0.85f) { s = s.copy(returnSpeed = it) }
+        LabeledSlider("Greeting distance: %.1f m".format(s.greetDistance), s.greetDistance, 0.8f..3.5f) { s = s.copy(greetDistance = it) }
+        LabeledSlider("Waiting room pause: ${s.waitingRoomPauseSec} s", s.waitingRoomPauseSec.toFloat(), 0f..15f) {
             s = s.copy(waitingRoomPauseSec = it.toInt())
         }
 
-        Section("Dialog")
-        ToggleRow("Automatisch begrüßen, wenn jemand davor steht", s.autoGreet) { s = s.copy(autoGreet = it) }
-        ToggleRow("Sprachmodell (AgentOS LLM) zum Verstehen nutzen", s.useLlm) { s = s.copy(useLlm = it) }
+        Section("Conversation")
+        ToggleRow("Greet automatically when someone is in front", s.autoGreet) { s = s.copy(autoGreet = it) }
+        ToggleRow("Use AgentOS language model for understanding", s.useLlm) { s = s.copy(useLlm = it) }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Sprache:", color = Palette.Text, fontSize = 13.sp)
-            FilterChip(selected = s.language == "de", onClick = { s = s.copy(language = "de") }, label = { Text("Deutsch") })
+            Text("Language:", color = Palette.Text, fontSize = 13.sp)
+            FilterChip(selected = s.language == "de", onClick = { s = s.copy(language = "de") }, label = { Text("German") })
             FilterChip(selected = s.language == "en", onClick = { s = s.copy(language = "en") }, label = { Text("English") })
         }
-        Field("Name des Roboters", s.robotName) { s = s.copy(robotName = it) }
-        Field("Firmenname (Fallback, sonst vom Backend)", s.companyName) { s = s.copy(companyName = it) }
-        Field("Admin-PIN", s.adminPin) { s = s.copy(adminPin = it) }
+        Field("Robot name", s.robotName) { s = s.copy(robotName = it) }
+        Field("Company name (fallback; otherwise from backend)", s.companyName) { s = s.copy(companyName = it) }
+        Field("Admin PIN", s.adminPin) { s = s.copy(adminPin = it) }
 
-        Section("Protokoll")
+        Section("Log")
         Text(log, color = Palette.Muted, fontSize = 11.sp, lineHeight = 14.sp)
         Spacer(Modifier.height(30.dp))
     }
 }
 
 private fun describe(r: NavResult): String = when (r) {
-    NavResult.Arrived -> "✔ angekommen"
-    NavResult.Cancelled -> "■ abgebrochen"
-    is NavResult.Failed -> "✖ ${r.message} (Code ${r.code})"
+    NavResult.Arrived -> "✔ Arrived"
+    NavResult.Cancelled -> "■ Cancelled"
+    is NavResult.Failed -> "✖ ${r.message} (code ${r.code})"
 }
 
 @Composable

@@ -780,7 +780,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         setScreen(title = l.followMeTitle, subtitle = settings.waitingRoom, mood = Mood.JOY, phase = Phase.ESCORT)
         say(l.followMe)
         if (!RobotController.connected.value) {
-            _ui.update { it.copy(banner = "RobotAPI nicht verbunden – Navigation nicht möglich") }
+            _ui.update { it.copy(banner = "RobotAPI is not connected — navigation is unavailable") }
             say(l.navFailed)
             return
         }
@@ -798,7 +798,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
                 is NavResult.Failed -> {
                     Log.w(TAG, "Fahrt zum Warteraum fehlgeschlagen: ${result.code} ${result.message}")
                     runCatching { AgentCore.isMicrophoneMuted = false }
-                    _ui.update { it.copy(banner = "Warteraum: ${result.message}") }
+                    _ui.update { it.copy(banner = "Waiting room: ${result.message}") }
                     setMood(Mood.SAD)
                     say(l.navFailed)
                 }
@@ -817,7 +817,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         runCatching { AgentCore.isMicrophoneMuted = false }
         if (result is NavResult.Failed) {
             Log.w(TAG, "Rückfahrt fehlgeschlagen: ${result.code} ${result.message}")
-            _ui.update { it.copy(banner = "Rückfahrt: ${result.message}") }
+            _ui.update { it.copy(banner = "Return trip: ${result.message}") }
             delay(3000)
         }
     }

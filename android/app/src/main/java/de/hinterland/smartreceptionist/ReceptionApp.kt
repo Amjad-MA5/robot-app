@@ -12,7 +12,7 @@ class ReceptionApp : Application() {
     override fun onCreate() {
         super.onCreate()
         if (!RobotController.isCoreServiceInstalled(this)) {
-            Log.i("ReceptionApp", "Kein AgentOS CoreService; AppAgent wird nicht initialisiert")
+            Log.i("ReceptionApp", "AgentOS CoreService is not installed; AppAgent will not be initialized")
             return
         }
         try {
@@ -20,14 +20,15 @@ class ReceptionApp : Application() {
             object : AppAgent(this) {
                 override fun onCreate() {
                     setPersona(
-                        "Du bist Nova, die freundliche digitale Empfangskraft eines Unternehmens. " +
-                            "Du begrüßt Besucher, nimmst ihren Namen und ihren Ansprechpartner auf, " +
-                            "benachrichtigst Mitarbeiter über Microsoft Teams und begleitest Gäste in den Warteraum."
+                        "You are Nova, a friendly digital receptionist at a company. " +
+                            "You welcome visitors, collect their names and the person they are visiting, " +
+                            "notify employees through Microsoft Teams, and escort guests to the waiting room."
                     )
-                    setStyle("Herzlich, professionell, kurz und klar. Höchstens zwei Sätze pro Antwort.")
+                    setStyle("Warm, professional, brief, and clear. Use no more than two sentences per response.")
                     setObjective(
-                        "Besucher schnell und ohne Wartezeit anmelden: Termin vorhanden → Mitarbeiter informieren und " +
-                            "in den Warteraum begleiten; ohne Termin → Verfügbarkeit prüfen; sonst einen freien Termin anbieten."
+                        "Check visitors in quickly with no unnecessary waiting: if they have an appointment, notify the " +
+                            "employee and escort them to the waiting room; if they are a walk-in, check availability; " +
+                            "otherwise, offer an open appointment."
                     )
                 }
 
@@ -35,7 +36,7 @@ class ReceptionApp : Application() {
             }
         } catch (t: Throwable) {
             // Außerhalb eines AgentOS-Roboters (z. B. im Emulator) gibt es den Dienst nicht.
-            Log.e("ReceptionApp", "AgentOS AppAgent konnte nicht erstellt werden", t)
+            Log.e("ReceptionApp", "Could not create AgentOS AppAgent", t)
         }
     }
 }
