@@ -85,7 +85,7 @@ def test_scenario1_arrival_notifies_employee(client):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["notification"]["sent"] is True
-    assert body["appointment"]["subject"] == "Besuchertermin Empfang"
+    assert body["appointment"]["subject"] == "Visitor Appointment at Reception"
     inbox = client.get("/api/mock/inbox", headers=HEADERS).json()
     assert inbox[0]["to"] == "Anna Schmidt"
     assert "Max Mustermann" in inbox[0]["text"]
