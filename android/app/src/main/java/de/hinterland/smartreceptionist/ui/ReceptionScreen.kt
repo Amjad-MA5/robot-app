@@ -104,6 +104,7 @@ interface ReceptionActions {
     fun onPickEmployee(employee: Employee)
     fun onCancel()
     fun onStop()
+    fun onLanguage(language: String)
     fun onAdminRequested()
 }
 
@@ -128,12 +129,15 @@ fun ReceptionScreen(state: UiState, lines: Lines, actions: ReceptionActions, cam
             contentScale = ContentScale.Fit,
             modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(1.05f).offset(x = 60.dp),
         )
-        Image(
-            painter = painterResource(R.drawable.logo_hinterland),
-            contentDescription = null,
-            contentScale = ContentScale.Fit,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 8.dp).height(24.dp),
-        )
+        // Während der Anmeldung braucht der Inhalt den Platz (v. a. die Knopfreihe) – dann kein Logo
+        if (state.phase != Phase.CONVERSATION) {
+            Image(
+                painter = painterResource(R.drawable.logo_hinterland),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 8.dp).height(24.dp),
+            )
+        }
         Row(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp)) {
             // ---------- links: Gesicht + Untertitel
             Column(
@@ -198,6 +202,10 @@ fun ReceptionScreen(state: UiState, lines: Lines, actions: ReceptionActions, cam
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
+            if (state.phase == Phase.IDLE || state.phase == Phase.CONVERSATION) {
+                LanguageSwitch(state.language) { actions.onLanguage(it) }
+                Spacer(Modifier.width(6.dp))
+            }
             StatusDot(state.backendOk == true, if (state.backendOk == null) Palette.Muted else null)
             StatusDot(state.robotOk, null)
             if (state.showCancel) {
@@ -225,6 +233,34 @@ fun ReceptionScreen(state: UiState, lines: Lines, actions: ReceptionActions, cam
                     .background(Palette.Warn)
                     .padding(horizontal = 10.dp, vertical = 4.dp),
             )
+        }
+    }
+}
+
+/** DE | EN – der Besucher wählt seine Sprache */
+@Composable
+private fun LanguageSwitch(current: String, onSelect: (String) -> Unit) {
+    Row(
+        Modifier.clip(RoundedCornerShape(50)).background(Palette.Panel).padding(1.dp),
+        horizontalArrangement = Arrangement.spacedBy(1.dp),
+    ) {
+        listOf("de" to "DE", "en" to "EN").forEach { (code, label) ->
+            val selected = current == code
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(if (selected) Palette.Accent else Color.Transparent)
+                    .clickable(enabled = !selected) { onSelect(code) }
+                    .padding(horizontal = 7.dp, vertical = 1.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    label,
+                    color = if (selected) Palette.AccentDark else Palette.Text,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
         }
     }
 }

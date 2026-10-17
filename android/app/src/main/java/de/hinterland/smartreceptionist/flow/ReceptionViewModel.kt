@@ -40,6 +40,7 @@ import de.hinterland.smartreceptionist.voice.RuleNlu
 import de.hinterland.smartreceptionist.voice.Step
 import de.hinterland.smartreceptionist.voice.Understander
 import de.hinterland.smartreceptionist.voice.Understanding
+import de.hinterland.smartreceptionist.voice.LanguageDetector
 import de.hinterland.smartreceptionist.voice.linesFor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -80,7 +81,12 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
 
     var settings: AppSettings = AppSettings.load(app)
         private set
-    private val lines: Lines get() = linesFor(settings.language)
+    /** Sprache des laufenden Besuchs (Umschalter oder erkannte Sprache); null = Einstellung aus dem Admin-Bereich */
+    @Volatile private var visitLanguage: String? = null
+    private var languageResetJob: Job? = null
+    private val activeLanguage: String get() = visitLanguage ?: settings.language
+    private val activeGerman: Boolean get() = activeLanguage != "en"
+    private val lines: Lines get() = linesFor(activeLanguage)
     private var backend = BackendClient(settings.backendUrl, settings.apiKey)
     private var companyName: String = settings.companyName
     private val understander = Understander { settings.useLlm }
@@ -90,9 +96,9 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Camera for the badge photo - set by MainActivity (RobotCamera); without a camera the badge has no photo */
     var camera: PhotoCamera = NoCamera
-    private val badgeLines: BadgeLines get() = badgeLinesFor(settings.language)
+    private val badgeLines: BadgeLines get() = badgeLinesFor(activeLanguage)
     private val placeCache = PlaceCache(source = { navigator.places() })
-    private val guideLines: GuideLines get() = guideLinesFor(settings.language)
+    private val guideLines: GuideLines get() = guideLinesFor(activeLanguage)
 
     /** Kartenpunkte nach Art sortiert – aus dem Zwischenspeicher, ohne zu warten */
     private fun catalog(): PlaceCatalog = PlaceCatalog(placeCache.cached, settings.waitingRoom, settings.receptionPoint)
@@ -225,6 +231,51 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         RobotController.stopNavigation()
     }
 
+    /**
+     * Besucher schaltet die Sprache um (DE/EN oben rechts). Läuft gerade eine Anmeldung, beginnt sie von vorn –
+     * in der neuen Sprache. Unterwegs (Begleitung/Rückfahrt) wird nicht umgeschaltet.
+     */
+    fun setLanguage(code: String) {
+        if (adminOpen || code == activeLanguage) return
+        val phase = _ui.value.phase
+        if (phase == Phase.ESCORT || phase == Phase.RETURNING) return
+        val inConversation = conversationJob?.isActive == true
+        if (inConversation) {
+            runCatching { AgentCore.stopTTS() }
+            conversationJob?.cancel()
+            conversationJob = null
+            runCatching { AgentCore.isMicrophoneMuted = false }
+        }
+        setVisitLanguage(code)
+        if (inConversation) {
+            startConversation(null)
+        } else {
+            showIdle()
+            // Wählt niemand weiter, zurück zur eingestellten Sprache
+            languageResetJob = viewModelScope.launch {
+                delay(LANGUAGE_IDLE_RESET_MS)
+                if (conversationJob?.isActive != true && _ui.value.phase == Phase.IDLE) {
+                    visitLanguage = null
+                    showIdle()
+                }
+            }
+        }
+    }
+
+    private fun setVisitLanguage(code: String) {
+        languageResetJob?.cancel()
+        visitLanguage = code
+        _ui.update { it.copy(language = code) }
+    }
+
+    /** Spricht der Besucher erkennbar eine andere Sprache, wechselt der Roboter für diesen Besuch. */
+    private fun adoptLanguage(text: String): Boolean {
+        val detected = LanguageDetector.detect(text) ?: return false
+        if (detected == activeLanguage) return false
+        setVisitLanguage(detected)
+        return true
+    }
+
     fun onScreenTap() {
         if (!adminOpen && _ui.value.phase == Phase.IDLE && conversationJob?.isActive != true) startConversation(null)
     }
@@ -256,6 +307,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         conversationJob?.cancel()
         conversationJob = null
         runCatching { AgentCore.isMicrophoneMuted = false }
+        visitLanguage = null
         showIdle()
         armCooldown()
     }
@@ -321,6 +373,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
                 subtitle = l.idleSubtitle,
                 backendOk = it.backendOk,
                 robotOk = it.robotOk,
+                language = activeLanguage,
             )
         }
     }
@@ -470,6 +523,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
             } finally {
                 runCatching { AgentCore.isMicrophoneMuted = false }
                 if (conversationJob == coroutineContext[Job]) {
+                    visitLanguage = null
                     showIdle()
                     armCooldown()
                 }
@@ -516,6 +570,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun checkIn(firstUtterance: String?) {
+        firstUtterance?.let { adoptLanguage(it) } // Besucher spricht Deutsch/Englisch → gleich in dieser Sprache begrüßen
         val l = lines
         val visit = Visit()
         setScreen(title = l.idleWelcome(companyName), mood = Mood.JOY)
@@ -548,7 +603,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------------------------------------------------------- 1. Anliegen
     private suspend fun askIntent(visit: Visit, preface: String?): Boolean {
-        val l = lines
+        var l = lines
         var attempts = 0
         var greetingFirst = preface
         while (visit.intent == null || visit.intent == Intent.OTHER) {
@@ -579,6 +634,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
                     val u = interpret(input, Step.INTENT, l.askAppointment) ?: continue
                     if (u.wantsCancel) { say(l.goodbye); return false }
                     val text = (input as? UserInput.Voice)?.text ?: (input as UserInput.Typed).text
+                    if (adoptLanguage(text)) l = lines
                     guideFrom(text, u, catalog())?.let { throw GuideInterrupt(it, text) }
                     visit.absorb(u)
                     if (visit.intent == null) {
@@ -623,7 +679,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         var attempts = 0
         while (visit.visitorName == null) {
             if (++attempts > 3) {
-                visit.visitorName = if (settings.isGerman) "ein Gast" else "a guest"
+                visit.visitorName = if (activeGerman) "ein Gast" else "a guest"
                 break
             }
             val input = ask(
@@ -1062,9 +1118,9 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
      */
     private suspend fun offerStory(): Boolean {
         if (!settings.waitingStory) return false
-        val parts = WaitingStory.parts(settings.isGerman, settings.waitingStoryText)
+        val parts = WaitingStory.parts(activeGerman, settings.waitingStoryText)
         if (parts.isEmpty()) return false
-        val s = WaitingStory.lines(settings.isGerman)
+        val s = WaitingStory.lines(activeGerman)
         storyActive = true
         try {
             val answer = ask(
@@ -1204,7 +1260,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         } else {
             try {
                 backend.createBadge(
-                    visitor, employee, purpose, settings.language, photo,
+                    visitor, employee, purpose, activeLanguage, photo,
                     print = !robotPrints, returnPdf = robotPrints, timeoutMs = if (robotPrints) 20_000 else 45_000,
                 )
             } catch (e: CancellationException) {
@@ -1230,7 +1286,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
                         hostName = employee.name,
                         company = companyName,
                         photoJpeg = photo,
-                        english = !settings.isGerman,
+                        english = !activeGerman,
                         badgeId = badgeId ?: LocalBadge.newId(),
                     )
                 }
@@ -1260,7 +1316,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun pickupHint(): String =
-        settings.badgePickupHint.ifBlank { if (settings.isGerman) "am Drucker" else "at the printer" }
+        settings.badgePickupHint.ifBlank { if (activeGerman) "am Drucker" else "at the printer" }
 
     /** Texts and mirroring for the camera view - same screen for the badge photo and the package photo. */
     private class PhotoPrompt(
@@ -1493,6 +1549,8 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
 
     companion object {
         private const val TAG = "ReceptionFlow"
+        /** So lange bleibt eine am Startbildschirm gewählte Sprache, wenn niemand weitermacht */
+        private const val LANGUAGE_IDLE_RESET_MS = 45_000L
         /** So lange wartet der Roboter nach einem Abstecher (z. B. Toilette), bevor es weitergeht */
         private const val DETOUR_WAIT_MS = 15_000L
         const val OPT_APPOINTMENT = "intent:appointment"

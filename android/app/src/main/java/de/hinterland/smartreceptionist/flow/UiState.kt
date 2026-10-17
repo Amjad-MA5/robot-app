@@ -36,6 +36,8 @@ data class UiState(
     val banner: String? = null,
     val showCancel: Boolean = false,
     val showStop: Boolean = false,
+    /** Sprache des laufenden Besuchs ("de" / "en") – der Besucher kann sie oben rechts umschalten */
+    val language: String = "en",
     val backendOk: Boolean? = null,
     val robotOk: Boolean = false,
     // ---- Visitor badge (only set during the photo/print step)

@@ -69,7 +69,7 @@ class MainActivity : ComponentActivity() {
                 val cameraFrame by vm.camera.preview.collectAsStateWithLifecycle()
                 var showPin by remember { mutableStateOf(false) }
                 var showAdmin by remember { mutableStateOf(false) }
-                val lines = linesFor(vm.settings.language)
+                val lines = linesFor(state.language)
 
                 if (showAdmin) {
                     AdminScreen(
@@ -89,6 +89,7 @@ class MainActivity : ComponentActivity() {
                             override fun onPickEmployee(employee: Employee) { vm.pickEmployee(employee) }
                             override fun onCancel() = vm.cancel()
                             override fun onStop() = vm.stopDriving()
+                            override fun onLanguage(language: String) = vm.setLanguage(language)
                             override fun onAdminRequested() { showPin = true }
                         }, cameraFrame)
                     }
