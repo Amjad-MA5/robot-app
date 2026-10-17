@@ -1,4 +1,4 @@
-"""Texte der Benachrichtigungen an Mitarbeiter (Teams/E-Mail) – Deutsch und Englisch (SR_LANGUAGE)."""
+"""Notification texts for employees (email/Teams) in English and German (SR_LANGUAGE)."""
 from __future__ import annotations
 
 from datetime import datetime

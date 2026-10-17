@@ -11,6 +11,7 @@ import pytest
 
 from app.config import settings
 from app.models import Employee
+from app.providers import graph as graph_provider
 from app.providers.graph import GraphProvider
 
 ME_ID = "me-0001"
@@ -54,12 +55,6 @@ class FakeGraph:
                      "end": {"dateTime": "2026-10-14T09:00:00.0000000", "timeZone": "UTC"}, "subject": "Kundentermin"},
                 ],
             }]})
-        if path == "/chats" and request.method == "POST":
-            return httpx.Response(201, json={"id": "chat-123"})
-        if path == "/chats/chat-123/messages":
-            return httpx.Response(201, json={"id": "msg-1"})
-        if path == "/me/sendMail":
-            return httpx.Response(202)
         if path == "/me/events":
             return httpx.Response(201, json={"id": "event-9"})
         return httpx.Response(404, json={"error": {"code": "NotFound", "message": path}})
@@ -74,7 +69,6 @@ def graph(tmp_path: Path):
         graph_client_id="client",
         graph_auth="delegated",
         token_cache_file=tmp_path / "cache.json",
-        notify_channels=("teams", "email"),
     )
     fake = FakeGraph()
     provider = GraphProvider.__new__(GraphProvider)
@@ -85,7 +79,6 @@ def graph(tmp_path: Path):
     provider._employees = []
     provider._employees_loaded_at = 0.0
     provider._me = None
-    provider._chat_ids = {}
     provider._device_flow = None
     provider._device_flow_result = None
     provider._token = lambda: "test-token"  # type: ignore[method-assign]
@@ -110,60 +103,19 @@ def test_get_schedule_parses_utc(graph):
     assert body["startTime"] == {"dateTime": "2026-10-14T00:00:00", "timeZone": "UTC"}
 
 
-def test_teams_notification_creates_one_on_one_chat(graph):
+def test_graph_provider_delegates_notifications_to_smtp(graph, monkeypatch):
     provider, fake = graph
-    result = provider.notify(EMP, "Betreff", "<p>Hallo</p>", "Hallo")
-    assert result.sent and result.channel == "teams"
-    chat_call = next(c for c in fake.calls if c[1] == "/chats")
-    members = chat_call[2]["members"]
-    assert chat_call[2]["chatType"] == "oneOnOne"
-    assert {m["user@odata.bind"] for m in members} == {
-        f"https://graph.microsoft.com/v1.0/users('{ME_ID}')",
-        f"https://graph.microsoft.com/v1.0/users('{EMP.id}')",
-    }
-    msg_call = next(c for c in fake.calls if c[1] == "/chats/chat-123/messages")
-    assert msg_call[2] == {"body": {"contentType": "html", "content": "<p>Hallo</p>"}}
-    # zweite Nachricht nutzt den gemerkten Chat
-    provider.notify(EMP, "Betreff", "<p>Nochmal</p>", "Nochmal")
-    assert sum(1 for c in fake.calls if c[1] == "/chats") == 1
+    calls = []
 
+    def send_email(cfg, employee, subject, html, text):
+        calls.append((employee, subject, html, text))
+        return graph_provider.NotificationResult(sent=True, channel="email", detail="sent")
 
-def test_fallback_to_email_when_teams_fails(graph):
-    provider, fake = graph
-    original = fake.handler
-
-    def failing(request: httpx.Request) -> httpx.Response:
-        if request.url.path.endswith("/chats"):
-            return httpx.Response(403, json={"error": {"code": "Forbidden", "message": "Teams-Lizenz fehlt"}})
-        return original(request)
-
-    provider._http = httpx.Client(transport=httpx.MockTransport(failing))
+    monkeypatch.setattr(graph_provider, "notify_email", send_email)
     result = provider.notify(EMP, "Betreff", "<p>Hallo</p>", "Hallo")
     assert result.sent and result.channel == "email"
-
-
-def test_mock_employee_email_resolves_to_real_teams_user(graph):
-    provider, fake = graph
-    mock_employee = Employee(id="mock-anna", name=EMP.name, email=EMP.email)
-
-    result = provider.notify_teams_by_email(mock_employee, "<p>Hallo</p>")
-
-    assert result and result.sent and result.channel == "teams"
-    chat_call = next(c for c in fake.calls if c[1] == "/chats")
-    members = chat_call[2]["members"]
-    assert "https://graph.microsoft.com/v1.0/users('aad-emp-42')" in {
-        m["user@odata.bind"] for m in members
-    }
-
-
-def test_mock_employee_without_matching_teams_user_is_not_sent(graph):
-    provider, fake = graph
-    mock_employee = Employee(id="mock-anna", name=EMP.name, email="missing@contoso.com")
-
-    result = provider.notify_teams_by_email(mock_employee, "<p>Hallo</p>")
-
-    assert result is None
-    assert not any(path == "/chats" for _, path, _ in fake.calls)
+    assert calls == [(EMP, "Betreff", "<p>Hallo</p>", "Hallo")]
+    assert not fake.calls
 
 
 def test_create_appointment_invites_employee(graph):

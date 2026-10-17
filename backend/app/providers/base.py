@@ -8,7 +8,7 @@ from ..models import BusyBlock, Employee, NotificationResult
 
 
 class ProviderError(RuntimeError):
-    """Fehler bei der Kommunikation mit dem Kalender-/Nachrichtensystem."""
+    """Fehler bei der Kommunikation mit dem Kalender- oder Benachrichtigungssystem."""
 
 
 class Provider(ABC):
@@ -27,7 +27,7 @@ class Provider(ABC):
 
     @abstractmethod
     def notify(self, employee: Employee, subject: str, html: str, text: str) -> NotificationResult:
-        """Benachrichtigt den Mitarbeiter (Teams-Chat, E-Mail …)."""
+        """Sends an email notification to the employee."""
 
     @abstractmethod
     def create_appointment(

@@ -149,6 +149,7 @@ def test_scenario3_book_slot_and_conflict(client):
     r = client.post("/api/appointments", json=payload, headers=HEADERS)
     assert r.status_code == 200, r.text
     assert r.json()["created"] is True
+    assert r.json()["notification"]["sent"] is True
     again = client.post("/api/appointments", json=payload, headers=HEADERS)
     assert again.status_code == 409
     new_slots = client.get("/api/employees/sophie.wagner/slots", headers=HEADERS).json()
@@ -195,36 +196,6 @@ def test_delivery_notifies_recipient(client):
 def test_delivery_unknown_employee_404(client):
     r = client.post("/api/visits/delivery", headers=HEADERS, json={"employee_id": "nobody"})
     assert r.status_code == 404
-
-
-def test_smtp_provider_sends_mail(monkeypatch):
-    from app.config import Settings
-    from app.providers import smtp as smtp_mod
-
-    sent = []
-
-    class FakeSMTP:
-        def __init__(self, host, port, timeout=0): sent.append(("connect", host, port))
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-        _ehlo_done = False
-        def ehlo(self): self._ehlo_done = True
-        def has_extn(self, name): return self._ehlo_done
-        def starttls(self, context=None): sent.append(("tls",))
-        def login(self, user, password): sent.append(("login", user))
-        def send_message(self, msg): sent.append(("mail", msg["To"], msg["Subject"]))
-
-    monkeypatch.setattr(smtp_mod.smtplib, "SMTP", FakeSMTP)
-    monkeypatch.setenv("SR_SMTP_USER", "me@gmail.com")
-    monkeypatch.setenv("SR_SMTP_PASSWORD", "pw")
-    monkeypatch.setenv("SR_SMTP_REDIRECT_TO", "test@example.org")
-    provider = smtp_mod.SmtpProvider(Settings())
-    employee = provider.get_employee("lukas.becker")
-    result = provider.notify(employee, "Betreff", "<p>Hi</p>", "Hi")
-    assert result.sent and result.channel == "email"
-    assert ("tls",) in sent and ("login", "me@gmail.com") in sent
-    assert ("mail", "test@example.org", "Betreff") in sent
-
 
 def test_delivery_signature_and_package_log(client):
     r = client.post(

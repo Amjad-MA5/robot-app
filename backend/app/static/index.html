@@ -82,8 +82,8 @@
   </section>
 
   <section class="card">
-    <h2>Simuliertes Teams-Postfach</h2>
-    <p class="muted">Nicht zugeordnete Adressen erscheinen hier; passende Microsoft-365-Konten erhalten bei aktiver Anmeldung eine echte Teams-Nachricht.</p>
+    <h2>Simuliertes E-Mail-Postfach</h2>
+    <p class="muted">Ohne SMTP-Konfiguration werden Benachrichtigungen hier simuliert. Mit einem konfigurierten SMTP-Server werden sie an die E-Mail-Adresse des Mitarbeiters gesendet.</p>
     <div class="list" id="inbox"><span class="muted">—</span></div>
   </section>
 
@@ -153,13 +153,11 @@ async function loadStatus() {
       + `Modus <b>${esc(s.mode)}</b> · Arbeitszeit ${esc(s.work_hours)}`;
     if (p.signed_in_as) html += `<br>Angemeldet als <b>${esc(p.signed_in_as)}</b>`;
     if (p.error) html += `<br><span class="muted">${esc(p.error)}</span>`;
-    if (p.teams) {
-      html += `<br>Teams <span class="pill ${p.teams.ready ? "ok" : "warn"}">${p.teams.ready ? "bereit" : "nicht angemeldet"}</span>`;
-      if (p.teams.signed_in_as) html += ` · Angemeldet als <b>${esc(p.teams.signed_in_as)}</b>`;
-      if (p.teams.error) html += `<br><span class="muted">${esc(p.teams.error)}</span>`;
+    if (p.email_configured !== undefined) {
+      html += `<br>E-Mail <span class="pill ${p.email_configured ? "ok" : "warn"}">${p.email_configured ? "SMTP konfiguriert" : "simuliert"}</span>`;
     }
     $("status").innerHTML = html;
-    const auth = p.teams || (s.mode === "graph" ? p : null);
+    const auth = s.mode === "graph" ? p : null;
     $("login").style.display = auth && auth.auth === "delegated" ? "flex" : "none";
     if (auth && auth.device_login_pending) {
       $("loginInfo").innerHTML = `<p>Öffne <a href="${esc(auth.device_login_pending.verification_uri)}" target="_blank">${esc(auth.device_login_pending.verification_uri)}</a> und gib den Code <b>${esc(auth.device_login_pending.user_code)}</b> ein.</p>`;

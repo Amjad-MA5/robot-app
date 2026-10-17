@@ -10,16 +10,18 @@ services:
     envVars:
       - key: SR_MODE
         value: mock
-      - key: SR_MOCK_TEAMS
-        value: true
-      - key: SR_GRAPH_AUTH
-        value: delegated
-      - key: SR_GRAPH_TENANT_ID
+      - key: SR_SMTP_HOST
         sync: false
-      - key: SR_GRAPH_CLIENT_ID
+      - key: SR_SMTP_PORT
+        value: 587
+      - key: SR_SMTP_SECURITY
+        value: starttls
+      - key: SR_SMTP_USERNAME
         sync: false
-      - key: SR_NOTIFY_CHANNELS
-        value: teams
+      - key: SR_SMTP_PASSWORD
+        sync: false
+      - key: SR_SMTP_FROM
+        sync: false
       - key: SR_API_KEY
         generateValue: true
       - key: SR_COMPANY_NAME

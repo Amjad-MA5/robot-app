@@ -51,10 +51,6 @@ def build_provider(cfg: Settings) -> Provider:
         from .providers.graph import GraphProvider
 
         return GraphProvider(cfg)
-    if cfg.mode == "smtp":
-        from .providers.smtp import SmtpProvider
-
-        return SmtpProvider(cfg)
     from .providers.mock import MockProvider
 
     return MockProvider(cfg)
