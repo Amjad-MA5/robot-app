@@ -6,6 +6,10 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ainirobot.agent.AgentCore
+import de.hinterland.smartreceptionist.badge.BadgeLines
+import de.hinterland.smartreceptionist.badge.NoCamera
+import de.hinterland.smartreceptionist.badge.PhotoCamera
+import de.hinterland.smartreceptionist.badge.badgeLinesFor
 import de.hinterland.smartreceptionist.config.AppSettings
 import de.hinterland.smartreceptionist.guide.Destination
 import de.hinterland.smartreceptionist.guide.GuideLines
@@ -50,7 +54,7 @@ import java.time.temporal.ChronoUnit
  * Herzstück der App: steuert das Gespräch mit dem Besucher als Ablauf (Coroutine).
  *
  *  Ruhe → Person erkannt → Begrüßung → Anliegen → Name → Ansprechpartner →
- *   ① Termin vorhanden:  Teams-Nachricht → Warteraum → zurück zum Empfang
+ *   ① Termin vorhanden:  Teams-Nachricht → Foto + Besucherausweis drucken → Warteraum → zurück zum Empfang
  *   ② ohne Termin:       Kalender prüfen → heute frei? Mitarbeiter informieren (→ optional Warteraum)
  *   ③ Termin vereinbaren: freie Termine aus dem Kalender vorschlagen → eintragen
  *
@@ -74,6 +78,10 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Fahrwerk (austauschbar für Tests/Simulation) */
     internal var navigator: Navigator = RobotNavigator
+
+    /** Kamera fürs Ausweisfoto – setzt die MainActivity (RobotCamera); ohne Kamera gibt es den Ausweis ohne Foto */
+    var camera: PhotoCamera = NoCamera
+    private val badgeLines: BadgeLines get() = badgeLinesFor(settings.language)
     private val placeCache = PlaceCache(source = { navigator.places() })
     private val guideLines: GuideLines get() = guideLinesFor(settings.language)
 
@@ -706,6 +714,8 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
             setMood(Mood.SAD)
             say(l.arrivalFailed(employee.name))
         }
+        // Sicherheit: angemeldete Gäste bekommen einen Besucherausweis mit Foto, Name, ID und QR-Code
+        if (settings.badgeEnabled) issueBadge(visit, employee)
         escortToWaitingRoom(employee)
     }
 
@@ -912,6 +922,134 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ================================================ Besucherausweis
+    /**
+     * Foto (mit Einverständnis) → Ausweis im Backend anlegen → Druck am Firmendrucker.
+     * Ohne Kamera, ohne Einverständnis oder bei Fehlern gibt es den Ausweis ohne Foto;
+     * scheitert der Druck, geht der Besuch trotzdem normal weiter.
+     */
+    private suspend fun issueBadge(visit: Visit, employee: Employee) {
+        val b = badgeLines
+        var photo: ByteArray? = null
+        try {
+            val question = b.askPhoto
+            val consent = ask(
+                question,
+                subtitle = b.photoPrivacy,
+                options = listOf(UiOption(OPT_PHOTO_YES, b.optPhotoYes, primary = true), UiOption(OPT_PHOTO_NO, b.optNoPhoto)),
+            )
+            val wantsPhoto = when (consent) {
+                is UserInput.Option -> consent.id == OPT_PHOTO_YES
+                is UserInput.Voice, is UserInput.Typed -> interpret(consent, Step.YES_NO, question)?.answer == true
+                else -> false
+            }
+            if (wantsPhoto) photo = takeBadgePhoto() else say(b.noPhotoOk)
+
+            setScreen(title = b.printingTitle, subtitle = b.printing, mood = Mood.THINKING)
+            val speech = viewModelScope.launch { say(b.printing) }
+            val result = try {
+                backend.createBadge(visit.visitorName.orEmpty(), employee, visit.purpose, settings.language, photo)
+            } catch (e: Exception) {
+                Log.w(TAG, "Besucherausweis fehlgeschlagen", e)
+                null
+            } finally {
+                photo = null // Foto sofort vergessen – es existiert nur noch im Ausdruck
+            }
+            speech.join()
+            if (result != null) {
+                _ui.update { it.copy(badgePreview = result.previewJpeg, photoMode = null, photo = null) }
+                setScreen(title = b.badgeTitle, subtitle = result.id, mood = if (result.printed) Mood.JOY else Mood.SAD)
+            }
+            if (result?.printed == true) {
+                say(b.printed(pickupHint()))
+                delay(1_500) // Ausweis-Vorschau kurz stehen lassen
+            } else {
+                Log.w(TAG, "Ausweis nicht gedruckt: ${result?.printDetail}")
+                setMood(Mood.SAD)
+                say(b.printFailed)
+            }
+        } finally {
+            photo = null
+            camera.close()
+            _ui.update { it.copy(photoMode = null, photo = null, countdown = null, badgePreview = null) }
+        }
+    }
+
+    private fun pickupHint(): String =
+        settings.badgePickupHint.ifBlank { if (settings.isGerman) "am Drucker" else "at the printer" }
+
+    /** Kamera an, Besucher sieht sich selbst, Countdown, Foto, „Passt das?“. null = ohne Foto. */
+    private suspend fun takeBadgePhoto(): ByteArray? {
+        val b = badgeLines
+        setScreen(title = b.lookAtCameraTitle, subtitle = b.photoPrivacy, mood = Mood.THINKING)
+        val opened = try {
+            camera.open()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Log.w(TAG, "Kamera konnte nicht geöffnet werden", t)
+            false
+        }
+        if (!opened) {
+            setMood(Mood.SAD)
+            say(b.cameraUnavailable)
+            return null
+        }
+        try {
+            var lastShot: ByteArray? = null
+            for (attempt in 0 until MAX_PHOTO_ATTEMPTS) {
+                _ui.update { it.copy(photoMode = PhotoMode.LIVE, photo = null, countdown = null, mirrorPreview = settings.cameraMirror) }
+                setScreen(title = b.lookAtCameraTitle, subtitle = b.photoPrivacy, mood = Mood.HAPPY)
+                say(if (attempt == 0) b.lookAtCamera else b.smile)
+                for (n in 3 downTo 1) {
+                    _ui.update { it.copy(countdown = n) }
+                    delay(COUNTDOWN_STEP_MS)
+                }
+                _ui.update { it.copy(countdown = 0) } // kurzer „Blitz“ in der Oberfläche
+                val shot = camera.takePhoto()
+                delay(250)
+                _ui.update { it.copy(countdown = null) }
+                if (shot == null) break
+                lastShot = shot
+                _ui.update { it.copy(photoMode = PhotoMode.REVIEW, photo = shot) }
+
+                val options = listOf(
+                    UiOption(OPT_PHOTO_OK, b.optPhotoOk, primary = true),
+                    UiOption(OPT_PHOTO_RETAKE, b.optRetake),
+                    UiOption(OPT_PHOTO_NO, b.optNoPhoto),
+                )
+                val decision = ask(b.reviewQuestion, options = options, timeoutMs = 12_000)
+                    ?: return shot // keine Antwort → Foto passt
+                when (decision) {
+                    is UserInput.Option -> when (decision.id) {
+                        OPT_PHOTO_OK -> return shot
+                        OPT_PHOTO_NO -> return null
+                        else -> continue
+                    }
+                    is UserInput.Voice, is UserInput.Typed -> {
+                        val text = (decision as? UserInput.Voice)?.text ?: (decision as UserInput.Typed).text
+                        when {
+                            WITHOUT_PHOTO.containsMatchIn(text.lowercase()) -> return null
+                            RETAKE.containsMatchIn(text.lowercase()) -> continue
+                            else -> when (interpret(decision, Step.YES_NO, b.reviewQuestion)?.answer) {
+                                true, null -> return shot
+                                false -> continue
+                            }
+                        }
+                    }
+                    is UserInput.Cancel -> return null
+                    else -> return shot
+                }
+            }
+            if (lastShot == null) say(b.cameraUnavailable)
+            return lastShot
+        } finally {
+            // Kamera sofort freigeben → Personenerkennung des Roboters läuft wieder
+            camera.close()
+            _ui.update { it.copy(photoMode = null, countdown = null) }
+        }
+    }
+
     // ======================================================= Wegweiser
     /**
      * Besucher fragt nach einem Ort → Ziel klären → hinbegleiten → zurück zum Empfang.
@@ -1061,6 +1199,14 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         const val OPT_SLOT = "slot:"
         const val OPT_ALL_EMPLOYEES = "employees:all"
         const val OPT_GUIDE = "guide:start"
+        const val OPT_PHOTO_YES = "photo:yes"
+        const val OPT_PHOTO_NO = "photo:no"
+        const val OPT_PHOTO_OK = "photo:ok"
+        const val OPT_PHOTO_RETAKE = "photo:retake"
+        private const val MAX_PHOTO_ATTEMPTS = 3
+        private const val COUNTDOWN_STEP_MS = 800L
+        private val RETAKE = Regex("nochmal|noch mal|neues|neu machen|wiederholen|again|another|retake|new one")
+        private val WITHOUT_PHOTO = Regex("ohne foto|kein foto|keine foto|without (a )?photo|no photo")
         const val OPT_PLACE = "place:"
 
         /** Näher als das (Meter) am Ziel → „Wir sind schon da“ statt loszufahren */
