@@ -44,6 +44,9 @@ interface Lines {
     val optSignatureNo: String
     val askPhoto: String
     val photoHint: String
+    val packagePhotoTitle: String
+    val packagePhotoLookAt: String
+    val packagePhotoUnavailable: String
     val optPhotoYes: String
     val optPhotoNo: String
     val employeeHint: String
@@ -145,6 +148,9 @@ object GermanLines : Lines {
     override val optSignatureNo = "Nein, am Empfang ablegen"
     override val askPhoto = "Darf ich ein Foto vom Paket machen?"
     override val photoHint = "Bitte halten Sie es so, dass die Adresse gut lesbar ist."
+    override val packagePhotoTitle = "Bitte Adressaufkleber zur Kamera halten"
+    override val packagePhotoLookAt = "Bitte halten Sie das Paket mit dem Adressaufkleber vor meine Kamera."
+    override val packagePhotoUnavailable = "Meine Kamera ist gerade nicht verfügbar. Ich gebe auch ohne Foto Bescheid."
     override val optPhotoYes = "Ja, Foto machen"
     override val optPhotoNo = "Nein, ohne Foto"
     override val employeeHint = "Name des Ansprechpartners"
@@ -268,6 +274,9 @@ object EnglishLines : Lines {
     override val optSignatureNo = "No, leave it at the desk"
     override val askPhoto = "May I take a photo of the package?"
     override val photoHint = "Please hold it so the address label is clearly visible."
+    override val packagePhotoTitle = "Hold the address label up to the camera"
+    override val packagePhotoLookAt = "Please hold the package with the address label in front of my camera."
+    override val packagePhotoUnavailable = "My camera is not available right now. I'll let them know without a photo."
     override val optPhotoYes = "Yes, take a photo"
     override val optPhotoNo = "No photo"
     override val employeeHint = "Name of your contact"

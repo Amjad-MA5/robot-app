@@ -10,6 +10,7 @@ import com.ainirobot.coreservice.client.listener.ActionListener
 import com.ainirobot.coreservice.client.listener.CommandListener
 import com.ainirobot.coreservice.client.module.ModuleCallbackApi
 import com.ainirobot.coreservice.client.person.PersonApi
+import de.hinterland.smartreceptionist.guide.MapPlace
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -119,24 +120,44 @@ object RobotController {
     }
 
     /** Alle Ortsnamen der aktuellen Karte. */
-    suspend fun placeNames(): List<String> {
+    suspend fun placeNames(): List<String> = mapPlaces().map { it.name }
+
+    /**
+     * Alle Kartenpunkte der aktuellen Karte mit Koordinaten und Status
+     * (angelegt im Robot Portal → Advanced Map Editor).
+     */
+    suspend fun mapPlaces(): List<MapPlace> {
         if (!_connected.value) return emptyList()
         return withTimeoutOrNull(5000) {
             suspendCancellableCoroutine { cont ->
                 val ok = runCatching {
                     RobotApi.getInstance().getPlaceList(nextReq(), object : CommandListener() {
                         override fun onResult(result: Int, message: String?) {
-                            val names = runCatching {
-                                val arr = JSONArray(message ?: "[]")
-                                (0 until arr.length()).mapNotNull { arr.getJSONObject(it).optString("name").takeIf { n -> n.isNotBlank() } }
-                            }.getOrDefault(emptyList())
-                            if (cont.isActive) cont.resume(names)
+                            if (cont.isActive) cont.resume(parsePlaceList(message))
                         }
                     })
                 }.isSuccess
                 if (!ok && cont.isActive) cont.resume(emptyList())
             }
         } ?: emptyList()
+    }
+
+    /** JSON-Antwort von getPlaceList: [{"name":"Restroom","x":1.2,"y":3.4,"status":0,…}, …] */
+    fun parsePlaceList(message: String?): List<MapPlace> = runCatching {
+        val arr = JSONArray(message ?: "[]")
+        (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            val name = o.optString("name").trim()
+            if (name.isEmpty()) null else MapPlace(name, o.optDouble("x", 0.0), o.optDouble("y", 0.0), o.optInt("status", 0))
+        }
+    }.getOrDefault(emptyList())
+
+    /** Luftlinie vom Roboter zum Kartenpunkt in Metern (null = unbekannt, z. B. nicht lokalisiert). */
+    fun distanceTo(place: String): Double? {
+        if (!_connected.value) return null
+        return runCatching { RobotApi.getInstance().getPlaceDistance(place) }
+            .getOrNull()
+            ?.takeIf { !it.isNaN() && it >= 0 && it < 10_000 }
     }
 
     fun isLocalized(): Boolean = _connected.value && runCatching { RobotApi.getInstance().isRobotEstimate() }.getOrDefault(false)

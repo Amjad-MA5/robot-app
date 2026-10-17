@@ -460,3 +460,9 @@ def auth_logout() -> dict:
         raise HTTPException(status_code=400, detail="Nur im Modus SR_MODE=graph verfügbar")
     logout()
     return {"ok": True}
+
+
+# ------------------------------------------------------- Besucherausweis (Add-on)
+from .badges.api import router as badges_router  # noqa: E402
+
+app.include_router(badges_router)

@@ -4,7 +4,11 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -49,7 +53,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -62,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.hinterland.smartreceptionist.flow.InputKind
 import de.hinterland.smartreceptionist.flow.Phase
+import de.hinterland.smartreceptionist.flow.PhotoMode
 import de.hinterland.smartreceptionist.flow.UiOption
 import de.hinterland.smartreceptionist.flow.UiState
 import de.hinterland.smartreceptionist.net.Employee
@@ -94,7 +106,7 @@ interface ReceptionActions {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun ReceptionScreen(state: UiState, lines: Lines, actions: ReceptionActions) {
+fun ReceptionScreen(state: UiState, lines: Lines, actions: ReceptionActions, cameraFrame: Bitmap? = null) {
     Box(
         Modifier
             .fillMaxSize()
@@ -112,7 +124,14 @@ fun ReceptionScreen(state: UiState, lines: Lines, actions: ReceptionActions) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                RobotFace(state.mood, Modifier.fillMaxWidth().aspectRatio(1f).weight(1f, fill = false))
+                when {
+                    // Ausweisfoto: Besucher sieht sich selbst (gespiegelt wie im Spiegel) statt des Gesichts
+                    state.photoMode == PhotoMode.LIVE ->
+                        CameraView(cameraFrame, state.mirrorPreview, state.countdown, Modifier.weight(1f, fill = false))
+                    state.photoMode == PhotoMode.REVIEW && state.photo != null ->
+                        PhotoView(state.photo, Modifier.weight(1f, fill = false))
+                    else -> RobotFace(state.mood, Modifier.fillMaxWidth().aspectRatio(1f).weight(1f, fill = false))
+                }
                 if (state.caption.isNotBlank() && state.phase != Phase.IDLE) {
                     Text(
                         state.caption,
@@ -266,6 +285,18 @@ private fun ConversationPanel(state: UiState, lines: Lines, actions: ReceptionAc
             HeardChip(state.heard)
         }
 
+        state.badgePreview?.let { jpeg ->
+            Spacer(Modifier.height(8.dp))
+            JpegImage(
+                jpeg,
+                contentDescription = "Besucherausweis",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1011f / 638f)
+                    .clip(RoundedCornerShape(10.dp)),
+            )
+        }
+
         state.summary?.let { s ->
             Spacer(Modifier.height(10.dp))
             Column(
@@ -305,6 +336,81 @@ private fun ConversationPanel(state: UiState, lines: Lines, actions: ReceptionAc
                 items(state.employees, key = { it.id }) { e -> EmployeeCard(e) { actions.onPickEmployee(e) } }
             }
         }
+    }
+}
+
+/** Live-Kamerabild mit Oval als Hilfe für die Kopfposition und Countdown 3 – 2 – 1. */
+@Composable
+private fun CameraView(frame: Bitmap?, mirror: Boolean, countdown: Int?, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .fillMaxWidth()
+            .aspectRatio(3f / 4f)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.Black),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (frame != null) {
+            Image(
+                bitmap = frame.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().graphicsLayer { scaleX = if (mirror) -1f else 1f },
+            )
+        } else {
+            Text("📷", fontSize = 28.sp)
+        }
+        // Oval: hier soll das Gesicht sein
+        Canvas(Modifier.fillMaxSize()) {
+            val ovalW = size.width * 0.62f
+            val ovalH = size.height * 0.58f
+            drawOval(
+                color = Color.White.copy(alpha = 0.85f),
+                topLeft = Offset((size.width - ovalW) / 2, size.height * 0.12f),
+                size = Size(ovalW, ovalH),
+                style = Stroke(width = 2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 10f))),
+            )
+        }
+        when {
+            countdown == 0 -> Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = 0.85f)))
+            countdown != null -> Text(
+                countdown.toString(),
+                color = Color.White,
+                fontSize = 54.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.35f))
+                    .padding(horizontal = 22.dp),
+            )
+        }
+    }
+}
+
+/** Das aufgenommene Foto zur Kontrolle (ungespiegelt – so kommt es auf den Ausweis). */
+@Composable
+private fun PhotoView(jpeg: ByteArray, modifier: Modifier = Modifier) {
+    JpegImage(
+        jpeg,
+        contentDescription = "Ihr Foto",
+        contentScale = ContentScale.Crop,
+        modifier = modifier
+            .fillMaxWidth()
+            .aspectRatio(3f / 4f)
+            .clip(RoundedCornerShape(16.dp)),
+    )
+}
+
+@Composable
+private fun JpegImage(
+    jpeg: ByteArray,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Fit,
+) {
+    val bitmap = remember(jpeg) { BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)?.asImageBitmap() }
+    if (bitmap != null) {
+        Image(bitmap = bitmap, contentDescription = contentDescription, contentScale = contentScale, modifier = modifier)
     }
 }
 

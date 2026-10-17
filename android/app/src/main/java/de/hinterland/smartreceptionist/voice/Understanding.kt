@@ -21,6 +21,10 @@ data class Understanding(
     val slotChoice: Int? = null,
     val wantsMore: Boolean = false,
     val wantsCancel: Boolean = false,
+    /** Besucher fragt nach dem Weg / möchte zu einem Ort gebracht werden */
+    val wantsGuide: Boolean = false,
+    /** Gewünschter Kartenpunkt (exakter Name aus der Roboterkarte), falls genannt */
+    val destination: String? = null,
 ) {
     /** Lücken mit Werten aus [other] füllen (eigene Werte haben Vorrang). */
     fun mergedWith(other: Understanding) = Understanding(
@@ -32,6 +36,8 @@ data class Understanding(
         slotChoice = slotChoice ?: other.slotChoice,
         wantsMore = wantsMore || other.wantsMore,
         wantsCancel = wantsCancel || other.wantsCancel,
+        wantsGuide = wantsGuide || other.wantsGuide,
+        destination = destination ?: other.destination,
     )
 }
 
@@ -50,11 +56,17 @@ class Understander(private val useLlm: () -> Boolean) {
         question: String,
         slots: List<OffsetDateTime> = emptyList(),
         slotLabels: List<String> = emptyList(),
+        placeNames: List<String> = emptyList(),
     ): Understanding {
         val rules = byRules(utterance, step, slots)
         if (!useLlm()) return rules
-        val llm = byLlm(utterance, step, question, slotLabels) ?: return rules
-        val checked = if (llm.slotChoice != null && llm.slotChoice !in slots.indices) llm.copy(slotChoice = null) else llm
+        val llm = byLlm(utterance, step, question, slotLabels, placeNames) ?: return rules
+        var checked = if (llm.slotChoice != null && llm.slotChoice !in slots.indices) llm.copy(slotChoice = null) else llm
+        // Nur Ziele zulassen, die es auf der Karte wirklich gibt
+        val wanted = checked.destination
+        if (wanted != null) {
+            checked = checked.copy(destination = placeNames.firstOrNull { it.equals(wanted, ignoreCase = true) })
+        }
         // Das Sprachmodell versteht Namen und Absichten besser; Regeln füllen Lücken.
         return checked.mergedWith(rules)
     }
@@ -72,25 +84,38 @@ class Understander(private val useLlm: () -> Boolean) {
         )
     }
 
-    private suspend fun byLlm(utterance: String, step: Step, question: String, offeredSlots: List<String>): Understanding? {
+    private suspend fun byLlm(
+        utterance: String,
+        step: Step,
+        question: String,
+        offeredSlots: List<String>,
+        placeNames: List<String>,
+    ): Understanding? {
         val slotsText = if (offeredSlots.isEmpty()) "none" else offeredSlots.mapIndexed { i, s -> "${i + 1}) $s" }.joinToString("; ")
+        val placesText = if (placeNames.isEmpty()) "none" else placeNames.joinToString("; ") { "\"$it\"" }
         val system = """
             You are the language-understanding module of a reception robot in an office lobby.
             The robot just asked the visitor: "$question" (dialog step: $step).
             Offered appointment options: $slotsText.
+            Places on the robot's map (it can walk visitors there): $placesText.
             Analyse the visitor's reply (it comes from speech recognition, German or English, may contain recognition errors).
             Reply ONLY with one compact JSON object, no markdown, with exactly these keys:
-            {"intent": "appointment" | "walk_in" | "book" | "delivery" | "other" | null,
+            {"intent": "appointment" | "walk_in" | "book" | "delivery" | "guide" | "other" | null,
              "answer": "yes" | "no" | null,
              "visitor_name": string | null,
              "employee_name": string | null,
              "purpose": string | null,
              "slot_choice": integer | null,
              "wants_more_options": boolean,
-             "wants_cancel": boolean}
+             "wants_cancel": boolean,
+             "destination": string | null}
             Rules:
             - intent "appointment" = visitor already has an appointment/meeting; "walk_in" = no appointment but wants to talk to someone now;
-              "book" = wants to make/schedule a new appointment; "delivery" = is delivering a package/parcel/mail for someone; "other" = unrelated request; null if not stated.
+              "book" = wants to make/schedule a new appointment; "delivery" = is delivering a package/parcel/mail for someone;
+              "guide" = asks where a place is or wants to be taken
+              somewhere (restroom, exit, waiting room, ...); "other" = unrelated request; null if not stated.
+            - destination = if intent is "guide": the EXACT name of the matching map place from the list above
+              (e.g. toilet/WC/Klo -> the restroom place, Ausgang -> the exit place); null if none matches.
             - "answer" = whether the reply means yes or no to the robot's question; null if neither.
             - visitor_name = the visitor's OWN name only if they state it (in dialog step NAME a bare name is the visitor's name). Never use the employee's name here.
             - employee_name = the person at the company they want to see (keep titles out, e.g. "Frau Schmidt" -> "Schmidt"). In dialog step EMPLOYEE a bare name is the employee.
@@ -122,6 +147,8 @@ class Understander(private val useLlm: () -> Boolean) {
                 fun str(key: String): String? =
                     if (o.isNull(key)) null else o.optString(key).trim().takeIf { it.isNotEmpty() && it != "null" }
                 Understanding(
+                    wantsGuide = str("intent")?.lowercase() == "guide",
+                    destination = str("destination"),
                     intent = when (str("intent")?.lowercase()) {
                         "appointment" -> Intent.APPOINTMENT
                         "walk_in", "walkin", "walk-in" -> Intent.WALK_IN

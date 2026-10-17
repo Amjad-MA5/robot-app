@@ -1,14 +1,27 @@
 package de.hinterland.smartreceptionist.flow
 
 import android.app.Application
-import android.graphics.BitmapFactory
 import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ainirobot.agent.AgentCore
+import de.hinterland.smartreceptionist.badge.BadgeLines
+import de.hinterland.smartreceptionist.badge.NoCamera
+import de.hinterland.smartreceptionist.badge.PhotoCamera
+import de.hinterland.smartreceptionist.badge.badgeLinesFor
 import de.hinterland.smartreceptionist.config.AppSettings
+import de.hinterland.smartreceptionist.guide.Destination
+import de.hinterland.smartreceptionist.guide.GuideLines
+import de.hinterland.smartreceptionist.guide.GuideNlu
+import de.hinterland.smartreceptionist.guide.GuideRequest
+import de.hinterland.smartreceptionist.guide.Navigator
+import de.hinterland.smartreceptionist.guide.PlaceCache
+import de.hinterland.smartreceptionist.guide.PlaceCatalog
+import de.hinterland.smartreceptionist.guide.PlaceKind
+import de.hinterland.smartreceptionist.guide.RobotNavigator
+import de.hinterland.smartreceptionist.guide.guideLinesFor
 import de.hinterland.smartreceptionist.net.BackendClient
 import de.hinterland.smartreceptionist.net.BackendException
 import de.hinterland.smartreceptionist.net.Employee
@@ -28,7 +41,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -36,7 +48,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import java.io.File
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
@@ -44,9 +55,13 @@ import java.time.temporal.ChronoUnit
  * Herzstück der App: steuert das Gespräch mit dem Besucher als Ablauf (Coroutine).
  *
  *  Ruhe → Person erkannt → Begrüßung → Anliegen → Name → Ansprechpartner →
- *   ① Termin vorhanden:  Teams-Nachricht → Warteraum → zurück zum Empfang
+ *   ① Termin vorhanden:  Teams-Nachricht → Foto + Besucherausweis drucken → Warteraum → zurück zum Empfang
  *   ② ohne Termin:       Kalender prüfen → heute frei? Mitarbeiter informieren (→ optional Warteraum)
  *   ③ Termin vereinbaren: freie Termine aus dem Kalender vorschlagen → eintragen
+ *
+ * Wegweiser: Fragt der Besucher jederzeit nach einem Ort („Wo ist die Toilette?“,
+ * „Bringen Sie mich zum Ausgang“), begleitet ihn der Roboter zu diesem Kartenpunkt
+ * und fährt danach zurück zum Empfang (siehe Paket guide und [guideVisitor]).
  *
  * Jede Frage kann per Sprache ODER Touch beantwortet werden.
  */
@@ -62,12 +77,24 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
     private var companyName: String = settings.companyName
     private val understander = Understander { settings.useLlm }
 
+    /** Fahrwerk (austauschbar für Tests/Simulation) */
+    internal var navigator: Navigator = RobotNavigator
+
+    /** Kamera fürs Ausweisfoto – setzt die MainActivity (RobotCamera); ohne Kamera gibt es den Ausweis ohne Foto */
+    var camera: PhotoCamera = NoCamera
+    private val badgeLines: BadgeLines get() = badgeLinesFor(settings.language)
+    private val placeCache = PlaceCache(source = { navigator.places() })
+    private val guideLines: GuideLines get() = guideLinesFor(settings.language)
+
+    /** Kartenpunkte nach Art sortiert – aus dem Zwischenspeicher, ohne zu warten */
+    private fun catalog(): PlaceCatalog = PlaceCatalog(placeCache.cached, settings.waitingRoom, settings.receptionPoint)
+
+    /** Wie [catalog], lädt die Punkte aber vorher neu, wenn sie älter als eine Minute sind */
+    private suspend fun freshCatalog(force: Boolean = false): PlaceCatalog =
+        PlaceCatalog(withContext(Dispatchers.IO) { placeCache.get(force) }, settings.waitingRoom, settings.receptionPoint)
+
     private val inputs = Channel<UserInput>(Channel.UNLIMITED)
 
-    /** Bitte an die Activity, die Kamera-App zu öffnen; Ergebnis kommt über [onPhotoResult]. */
-    val photoRequest = MutableSharedFlow<File>(extraBufferCapacity = 1)
-    private val photoResult = Channel<Boolean>(Channel.CONFLATED)
-    @Volatile private var photoInProgress = false
     private var conversationJob: Job? = null
     private var detectionJob: Job? = null
     private var healthJob: Job? = null
@@ -101,11 +128,16 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         RobotController.resetHead()
         startDetection()
         startHealthChecks()
+        // Kartenpunkte vorab laden, damit Wegfragen sofort erkannt werden
+        viewModelScope.launch {
+            repeat(10) {
+                if (freshCatalog(force = true).destinations.isNotEmpty()) return@launch
+                delay(3_000) // RobotAPI verbindet sich evtl. erst nach dem Start
+            }
+        }
     }
 
     fun onBackground() {
-        // Die Kamera-App für das Paketfoto schiebt uns kurz in den Hintergrund – Gespräch nicht abbrechen.
-        if (photoInProgress) return
         inForeground = false
         cancelConversation()
         detectionJob?.cancel()
@@ -163,8 +195,6 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
     fun onScreenTap() {
         if (!adminOpen && _ui.value.phase == Phase.IDLE && conversationJob?.isActive != true) startConversation(null)
     }
-
-    fun onPhotoResult(success: Boolean) { photoResult.trySend(success) }
 
     fun choose(id: String) = inputs.trySend(UserInput.Option(id))
     fun submitText(text: String) { if (text.isNotBlank()) inputs.trySend(UserInput.Typed(text.trim())) }
@@ -317,6 +347,10 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         input: TextInput? = null,
         employees: List<Employee> = emptyList(),
         timeoutMs: Long = 18_000,
+        /** Fragt der Besucher hier nach einem Ort, wird die Anmeldung unterbrochen ([GuideInterrupt]) */
+        allowGuide: Boolean = true,
+        /** Auch ein bloßer Ortsname („Toilette?“) zählt als Wegfrage – nur bei offenen Fragen sinnvoll */
+        shortGuideOk: Boolean = false,
     ): UserInput? {
         drainInputs()
         setScreen(title, subtitle, options, input, employees)
@@ -333,6 +367,14 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
                     if (speech.isActive) {
                         runCatching { AgentCore.stopTTS() }
                         speech.cancel()
+                    }
+                    if (allowGuide && received is UserInput.Voice) {
+                        GuideNlu.detect(
+                            received.text,
+                            catalog(),
+                            inCheckIn = !shortGuideOk,
+                            mentionsVisitPurpose = RuleNlu.intent(received.text) != null,
+                        )?.let { throw GuideInterrupt(it, received.text) }
                     }
                     if (received is UserInput.Voice || received is UserInput.Typed) setMood(Mood.THINKING)
                     return received
@@ -364,7 +406,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         }
         _ui.update { it.copy(heard = text, mood = Mood.THINKING) }
         val labels = slots.map { lines.formatSlot(it.start, LocalDate.now(it.start.offset)) }
-        return understander.understand(text, step, question, slots.map { it.start }, labels)
+        return understander.understand(text, step, question, slots.map { it.start }, labels, catalog().names())
     }
 
     // ================================================================== Gespräch
@@ -404,7 +446,29 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Unterbricht die Anmeldung, weil der Besucher nach einem Ort gefragt hat. */
+    private class GuideInterrupt(val request: GuideRequest, val utterance: String?) : Exception()
+
     private suspend fun conversation(firstUtterance: String?) {
+        try {
+            checkIn(firstUtterance)
+        } catch (g: GuideInterrupt) {
+            guideVisitor(g.request, g.utterance)
+        }
+    }
+
+    /** Wegfrage per Regeln oder (falls aktiv) per Sprachmodell erkennen. */
+    private fun guideFrom(text: String, u: Understanding?, catalog: PlaceCatalog): GuideRequest? {
+        GuideNlu.detect(text, catalog, inCheckIn = false, mentionsVisitPurpose = RuleNlu.intent(text) != null)?.let { return it }
+        if (u == null || !u.wantsGuide) return null
+        val fromLlm = u.destination?.let { catalog.byName(it) }
+        return when {
+            fromLlm != null -> GuideRequest(listOf(fromLlm), fromLlm.kind)
+            else -> catalog.match(text) ?: GuideRequest()
+        }
+    }
+
+    private suspend fun checkIn(firstUtterance: String?) {
         val l = lines
         val visit = Visit()
         setScreen(title = "👋 " + l.idleTitle, mood = Mood.JOY)
@@ -412,7 +476,10 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         val greeting = l.greeting(companyName, settings.robotName)
         if (firstUtterance != null) {
             _ui.update { it.copy(heard = firstUtterance, mood = Mood.THINKING) }
-            visit.absorb(understander.understand(firstUtterance, Step.GREETING, greeting))
+            val u = understander.understand(firstUtterance, Step.GREETING, greeting, placeNames = catalog().names())
+            // „Wo ist die Toilette?“ direkt beim Ansprechen → gleich losgehen, ohne Anmeldung
+            guideFrom(firstUtterance, u, catalog())?.let { throw GuideInterrupt(it, firstUtterance) }
+            visit.absorb(u)
         }
         // Begrüßung und erste Frage in einem Satz → keine Pause dazwischen
         if (visit.intent != null) say(greeting)
@@ -451,15 +518,21 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
                 UiOption(OPT_WALK_IN, l.optWalkIn),
                 UiOption(OPT_BOOK, l.optBook),
                 UiOption(OPT_DELIVERY, l.optDelivery),
+                UiOption(OPT_GUIDE, guideLines.optGuide),
             )
-            val input = ask(l.askAppointment, preface = greetingFirst, options = options) ?: return noResponse()
+            val input = ask(l.askAppointment, preface = greetingFirst, options = options, shortGuideOk = true) ?: return noResponse()
             greetingFirst = null
             when (input) {
-                is UserInput.Option -> visit.intent = intentFromOption(input.id)
+                is UserInput.Option -> {
+                    if (input.id == OPT_GUIDE) throw GuideInterrupt(GuideRequest(), null)
+                    visit.intent = intentFromOption(input.id)
+                }
                 is UserInput.Cancel -> return false
                 is UserInput.Voice, is UserInput.Typed -> {
                     val u = interpret(input, Step.INTENT, l.askAppointment) ?: continue
                     if (u.wantsCancel) { say(l.goodbye); return false }
+                    val text = (input as? UserInput.Voice)?.text ?: (input as UserInput.Typed).text
+                    guideFrom(text, u, catalog())?.let { throw GuideInterrupt(it, text) }
                     visit.absorb(u)
                     if (visit.intent == null) {
                         when (u.answer) {
@@ -648,6 +721,8 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
             setMood(Mood.SAD)
             say(l.arrivalFailed(employee.name))
         }
+        // Sicherheit: angemeldete Gäste bekommen einen Besucherausweis mit Foto, Name, ID und QR-Code
+        if (settings.badgeEnabled) issueBadge(visit, employee)
         escortToWaitingRoom(employee)
     }
 
@@ -658,7 +733,7 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         val signature = askYesNo(l.askSignature, l.optSignatureYes, l.optSignatureNo) ?: return
         var photo: String? = null
         if (settings.deliveryPhoto && askYesNo(l.askPhoto, l.optPhotoYes, l.optPhotoNo, hint = l.photoHint) == true) {
-            photo = capturePhoto()
+            photo = takePhotoInApp(packagePrompt())?.let { Base64.encodeToString(it, Base64.NO_WRAP) }
         }
         setScreen(title = employee.name, subtitle = l.thinking, mood = Mood.THINKING)
         val result = try {
@@ -712,36 +787,6 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
             is UserInput.Voice, is UserInput.Typed -> interpret(input, Step.YES_NO, question)?.answer ?: false
             else -> null
         }
-    }
-
-    /** Öffnet die Kamera-App und liefert das Foto verkleinert als Base64-JPEG (null bei Abbruch/Fehler). */
-    private suspend fun capturePhoto(): String? {
-        val file = File(getApplication<Application>().cacheDir, "photos/package.jpg")
-        file.parentFile?.mkdirs()
-        file.delete()
-        photoInProgress = true
-        try {
-            photoResult.tryReceive()
-            photoRequest.emit(file)
-            val ok = withTimeoutOrNull(120_000) { photoResult.receive() } ?: false
-            if (!ok || !file.exists()) return null
-            return withContext(Dispatchers.Default) { encodePhoto(file) }
-        } finally {
-            photoInProgress = false
-        }
-    }
-
-    private fun encodePhoto(file: File): String? {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(file.path, bounds)
-        var sample = 1
-        while (bounds.outWidth / sample > 1280) sample *= 2
-        val bitmap = BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample }) ?: return null
-        val out = java.io.ByteArrayOutputStream()
-        bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out)
-        bitmap.recycle()
-        file.delete()
-        return Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
     }
 
     // ============================================== Szenario 2: ohne Termin
@@ -888,20 +933,22 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
     // =========================================== Begleitung in den Warteraum
     private suspend fun escortToWaitingRoom(employee: Employee?, arrivedLine: String? = null) {
         val l = lines
-        setScreen(title = l.followMeTitle, subtitle = settings.waitingRoom, mood = Mood.JOY, phase = Phase.ESCORT)
+        // Eingestellter Name oder ein Kartenpunkt, der nach Warteraum klingt („Waiting Room“, „Lounge“ …)
+        val waitingRoom = freshCatalog().waitingRoom()?.name ?: settings.waitingRoom
+        setScreen(title = l.followMeTitle, subtitle = waitingRoom, mood = Mood.JOY, phase = Phase.ESCORT)
         say(l.followMe)
-        if (!RobotController.connected.value) {
+        if (!navigator.isConnected) {
             _ui.update { it.copy(banner = "RobotAPI is not connected — navigation is unavailable") }
             say(l.navFailed)
             return
         }
         runCatching { AgentCore.isMicrophoneMuted = true }
         try {
-            val result = RobotController.navigateTo(settings.waitingRoom, settings.escortSpeed) { event -> onNavEvent(event) }
+            val result = navigator.navigateTo(waitingRoom, settings.escortSpeed) { event -> onNavEvent(event) }
             when (result) {
                 is NavResult.Arrived -> {
                     runCatching { AgentCore.isMicrophoneMuted = false }
-                    setScreen(title = "🙂", subtitle = settings.waitingRoom, mood = Mood.JOY, phase = Phase.ESCORT)
+                    setScreen(title = "🙂", subtitle = waitingRoom, mood = Mood.JOY, phase = Phase.ESCORT)
                     say(arrivedLine ?: employee?.let { l.arrivedWaitingRoom(it.name) } ?: l.arrivedWaitingRoomGeneric)
                     delay(settings.waitingRoomPauseSec * 1000L)
                 }
@@ -922,9 +969,10 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
 
     private suspend fun returnToReception() {
         val l = lines
-        setScreen(title = l.returningTitle, subtitle = settings.receptionPoint, mood = Mood.HAPPY, phase = Phase.RETURNING)
+        val reception = catalog().reception()?.name ?: settings.receptionPoint
+        setScreen(title = l.returningTitle, subtitle = reception, mood = Mood.HAPPY, phase = Phase.RETURNING)
         runCatching { AgentCore.isMicrophoneMuted = true }
-        val result = RobotController.navigateTo(settings.receptionPoint, settings.returnSpeed) { event -> onNavEvent(event) }
+        val result = navigator.navigateTo(reception, settings.returnSpeed) { event -> onNavEvent(event) }
         runCatching { AgentCore.isMicrophoneMuted = false }
         if (result is NavResult.Failed) {
             Log.w(TAG, "Rückfahrt fehlgeschlagen: ${result.code} ${result.message}")
@@ -941,6 +989,282 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
                 // Kurze Bitte ohne zu warten (Fahrt läuft weiter)
                 runCatching { AgentCore.tts(lines.pathBlocked, 8000L, null) }
             }
+        }
+    }
+
+    // ================================================ Besucherausweis
+    /**
+     * Foto (mit Einverständnis) → Ausweis im Backend anlegen → Druck am Firmendrucker.
+     * Ohne Kamera, ohne Einverständnis oder bei Fehlern gibt es den Ausweis ohne Foto;
+     * scheitert der Druck, geht der Besuch trotzdem normal weiter.
+     */
+    private suspend fun issueBadge(visit: Visit, employee: Employee) {
+        val b = badgeLines
+        var photo: ByteArray? = null
+        try {
+            val question = b.askPhoto
+            val consent = ask(
+                question,
+                subtitle = b.photoPrivacy,
+                options = listOf(UiOption(OPT_PHOTO_YES, b.optPhotoYes, primary = true), UiOption(OPT_PHOTO_NO, b.optNoPhoto)),
+            )
+            val wantsPhoto = when (consent) {
+                is UserInput.Option -> consent.id == OPT_PHOTO_YES
+                is UserInput.Voice, is UserInput.Typed -> interpret(consent, Step.YES_NO, question)?.answer == true
+                else -> false
+            }
+            if (wantsPhoto) photo = takePhotoInApp(badgePrompt()) else say(b.noPhotoOk)
+
+            setScreen(title = b.printingTitle, subtitle = b.printing, mood = Mood.THINKING)
+            val speech = viewModelScope.launch { say(b.printing) }
+            val result = try {
+                backend.createBadge(visit.visitorName.orEmpty(), employee, visit.purpose, settings.language, photo)
+            } catch (e: Exception) {
+                Log.w(TAG, "Besucherausweis fehlgeschlagen", e)
+                null
+            } finally {
+                photo = null // Foto sofort vergessen – es existiert nur noch im Ausdruck
+            }
+            speech.join()
+            if (result != null) {
+                _ui.update { it.copy(badgePreview = result.previewJpeg, photoMode = null, photo = null) }
+                setScreen(title = b.badgeTitle, subtitle = result.id, mood = if (result.printed) Mood.JOY else Mood.SAD)
+            }
+            if (result?.printed == true) {
+                say(b.printed(pickupHint()))
+                delay(1_500) // Ausweis-Vorschau kurz stehen lassen
+            } else {
+                Log.w(TAG, "Ausweis nicht gedruckt: ${result?.printDetail}")
+                setMood(Mood.SAD)
+                say(b.printFailed)
+            }
+        } finally {
+            photo = null
+            camera.close()
+            _ui.update { it.copy(photoMode = null, photo = null, countdown = null, badgePreview = null) }
+        }
+    }
+
+    private fun pickupHint(): String =
+        settings.badgePickupHint.ifBlank { if (settings.isGerman) "am Drucker" else "at the printer" }
+
+    /** Texte und Spiegelung für die Kamera-Ansicht – gleiche Oberfläche für Ausweis- und Paketfoto. */
+    private class PhotoPrompt(
+        val title: String,
+        val subtitle: String,
+        val lookAt: String,
+        val again: String,
+        val unavailable: String,
+        val mirror: Boolean,
+    )
+
+    private fun badgePrompt(): PhotoPrompt {
+        val b = badgeLines
+        return PhotoPrompt(b.lookAtCameraTitle, b.photoPrivacy, b.lookAtCamera, b.smile, b.cameraUnavailable, settings.cameraMirror)
+    }
+
+    /** Beim Paket nicht spiegeln: der Adressaufkleber muss lesbar sein. */
+    private fun packagePrompt(): PhotoPrompt {
+        val l = lines
+        return PhotoPrompt(l.packagePhotoTitle, l.photoHint, l.packagePhotoLookAt, l.packagePhotoLookAt, l.packagePhotoUnavailable, false)
+    }
+
+    /** Kamera an, Besucher sieht sich selbst, Countdown, Foto, „Passt das?“. null = ohne Foto. */
+    private suspend fun takePhotoInApp(p: PhotoPrompt): ByteArray? {
+        val b = badgeLines
+        setScreen(title = p.title, subtitle = p.subtitle, mood = Mood.THINKING)
+        val opened = try {
+            camera.open()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Log.w(TAG, "Kamera konnte nicht geöffnet werden", t)
+            false
+        }
+        if (!opened) {
+            setMood(Mood.SAD)
+            say(p.unavailable)
+            return null
+        }
+        try {
+            var lastShot: ByteArray? = null
+            for (attempt in 0 until MAX_PHOTO_ATTEMPTS) {
+                _ui.update { it.copy(photoMode = PhotoMode.LIVE, photo = null, countdown = null, mirrorPreview = p.mirror) }
+                setScreen(title = p.title, subtitle = p.subtitle, mood = Mood.HAPPY)
+                say(if (attempt == 0) p.lookAt else p.again)
+                for (n in 3 downTo 1) {
+                    _ui.update { it.copy(countdown = n) }
+                    delay(COUNTDOWN_STEP_MS)
+                }
+                _ui.update { it.copy(countdown = 0) } // kurzer „Blitz“ in der Oberfläche
+                val shot = camera.takePhoto()
+                delay(250)
+                _ui.update { it.copy(countdown = null) }
+                if (shot == null) break
+                lastShot = shot
+                _ui.update { it.copy(photoMode = PhotoMode.REVIEW, photo = shot) }
+
+                val options = listOf(
+                    UiOption(OPT_PHOTO_OK, b.optPhotoOk, primary = true),
+                    UiOption(OPT_PHOTO_RETAKE, b.optRetake),
+                    UiOption(OPT_PHOTO_NO, b.optNoPhoto),
+                )
+                val decision = ask(b.reviewQuestion, options = options, timeoutMs = 12_000)
+                    ?: return shot // keine Antwort → Foto passt
+                when (decision) {
+                    is UserInput.Option -> when (decision.id) {
+                        OPT_PHOTO_OK -> return shot
+                        OPT_PHOTO_NO -> return null
+                        else -> continue
+                    }
+                    is UserInput.Voice, is UserInput.Typed -> {
+                        val text = (decision as? UserInput.Voice)?.text ?: (decision as UserInput.Typed).text
+                        when {
+                            WITHOUT_PHOTO.containsMatchIn(text.lowercase()) -> return null
+                            RETAKE.containsMatchIn(text.lowercase()) -> continue
+                            else -> when (interpret(decision, Step.YES_NO, b.reviewQuestion)?.answer) {
+                                true, null -> return shot
+                                false -> continue
+                            }
+                        }
+                    }
+                    is UserInput.Cancel -> return null
+                    else -> return shot
+                }
+            }
+            if (lastShot == null) say(p.unavailable)
+            return lastShot
+        } finally {
+            // Kamera sofort freigeben → Personenerkennung des Roboters läuft wieder
+            camera.close()
+            _ui.update { it.copy(photoMode = null, countdown = null) }
+        }
+    }
+
+    // ======================================================= Wegweiser
+    /**
+     * Besucher fragt nach einem Ort → Ziel klären → hinbegleiten → zurück zum Empfang.
+     *
+     * @param initial  was bisher erkannt wurde (kann leer sein, dann wird gefragt)
+     * @param utterance die ursprüngliche Frage – wird nach dem Neuladen der Karte erneut ausgewertet
+     */
+    private suspend fun guideVisitor(initial: GuideRequest, utterance: String?) {
+        val g = guideLines
+        setScreen(title = g.askWhere, mood = Mood.THINKING)
+        val catalog = freshCatalog()
+        if (catalog.isEmpty) {
+            setMood(Mood.SAD)
+            say(if (navigator.isConnected) g.noPlaces else g.robotOffline)
+            return
+        }
+        // Kartenpunkte können sich seit der Erkennung geändert haben → mit frischer Karte neu zuordnen
+        var request = utterance?.let { catalog.match(it) } ?: initial
+        if (request.candidates.isEmpty() && initial.candidates.isNotEmpty()) {
+            request = GuideRequest(initial.candidates.mapNotNull { catalog.byName(it.name) }, initial.kind)
+        }
+
+        val wantedKind = request.kind
+        val destination: Destination = when {
+            request.candidates.size == 1 -> request.candidates.first()
+            request.candidates.size > 1 -> chooseDestination(catalog, request.candidates, g.whichOne(wantedKind ?: PlaceKind.OTHER), null)
+            // Ort erkannt, aber nicht auf der Karte (z. B. Warteraum noch nicht angelegt)
+            wantedKind != null -> chooseDestination(catalog, catalog.touchDestinations(), g.askWhere, g.notOnMap(wantedKind))
+            else -> chooseDestination(catalog, catalog.touchDestinations(), g.askWhere, null)
+        } ?: return
+        guideTo(destination)
+    }
+
+    /** Ziel per Touch oder Sprache auswählen lassen. null = abgebrochen / keine Antwort. */
+    private suspend fun chooseDestination(
+        catalog: PlaceCatalog,
+        choices: List<Destination>,
+        question: String,
+        preface: String?,
+    ): Destination? {
+        val g = guideLines
+        var spokenPreface = preface
+        repeat(3) {
+            val options = choices.mapIndexed { i, d -> UiOption(OPT_PLACE + d.name, g.label(d), primary = i == 0) }
+            val input = ask(question, preface = spokenPreface, subtitle = g.chooseOnScreen, options = options, allowGuide = false)
+                ?: run {
+                    say(lines.noResponse)
+                    return null
+                }
+            spokenPreface = null
+            when (input) {
+                is UserInput.Option -> catalog.byName(input.id.removePrefix(OPT_PLACE))?.let { return it }
+                is UserInput.Cancel -> return null
+                is UserInput.Voice, is UserInput.Typed -> {
+                    val text = (input as? UserInput.Voice)?.text ?: (input as UserInput.Typed).text
+                    if (RuleNlu.wantsCancel(text)) {
+                        say(lines.goodbye)
+                        return null
+                    }
+                    val byRules = catalog.match(text)
+                    val kind = byRules?.kind
+                    when {
+                        byRules != null && byRules.candidates.size == 1 -> return byRules.candidates.first()
+                        byRules != null && byRules.candidates.size > 1 ->
+                            return chooseDestination(catalog, byRules.candidates, g.whichOne(kind ?: PlaceKind.OTHER), null)
+                        kind != null -> spokenPreface = g.notOnMap(kind)
+                        else -> {
+                            // Sprachmodell als zweite Meinung (versteht z. B. „Ich muss mal für kleine Mädchen“)
+                            val u = interpret(input, Step.GREETING, question)
+                            u?.destination?.let { name -> catalog.byName(name)?.let { return it } }
+                            spokenPreface = g.unknownPlace
+                        }
+                    }
+                }
+                else -> Unit
+            }
+        }
+        return null
+    }
+
+    /** Begleitet den Besucher zu [destination] und fährt danach zurück zum Empfang. */
+    private suspend fun guideTo(destination: Destination) {
+        val l = lines
+        val g = guideLines
+        val label = g.label(destination)
+
+        val distance = withContext(Dispatchers.IO) { navigator.distanceTo(destination.name) }
+        if (distance != null && distance < ALREADY_THERE_M) {
+            setScreen(title = "🙂", subtitle = label, mood = Mood.JOY)
+            say(g.alreadyHere(destination))
+            return
+        }
+        if (!navigator.isConnected) {
+            setScreen(title = label, mood = Mood.SAD)
+            say(g.robotOffline)
+            return
+        }
+
+        setScreen(title = l.followMeTitle, subtitle = label, mood = Mood.JOY, phase = Phase.ESCORT)
+        say(g.startGuiding(destination))
+        // Während der Fahrt nicht zuhören (Motorgeräusche, Passanten …)
+        runCatching { AgentCore.isMicrophoneMuted = true }
+        try {
+            when (val result = navigator.navigateTo(destination.name, settings.escortSpeed) { event -> onNavEvent(event) }) {
+                is NavResult.Arrived -> {
+                    runCatching { AgentCore.isMicrophoneMuted = false }
+                    setScreen(title = "🙂", subtitle = label, mood = Mood.JOY, phase = Phase.ESCORT)
+                    say(g.arrived(destination))
+                    val pauseSec = if (destination.kind == PlaceKind.WAITING_ROOM) settings.waitingRoomPauseSec else 2
+                    if (destination.kind != PlaceKind.RECEPTION) delay(pauseSec * 1000L)
+                }
+                is NavResult.Cancelled -> return
+                is NavResult.Failed -> {
+                    Log.w(TAG, "Fahrt zu ${destination.name} fehlgeschlagen: ${result.code} ${result.message}")
+                    runCatching { AgentCore.isMicrophoneMuted = false }
+                    _ui.update { it.copy(banner = "${destination.name}: ${result.message}") }
+                    setMood(Mood.SAD)
+                    say(g.navFailed(destination))
+                }
+            }
+            // Am Empfang ist der Roboter zu Hause – sonst wieder zurückfahren
+            if (destination.kind != PlaceKind.RECEPTION) returnToReception()
+        } finally {
+            runCatching { AgentCore.isMicrophoneMuted = false }
         }
     }
 
@@ -968,6 +1292,19 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
         const val OPT_MORE = "slots:more"
         const val OPT_SLOT = "slot:"
         const val OPT_ALL_EMPLOYEES = "employees:all"
+        const val OPT_GUIDE = "guide:start"
+        const val OPT_PHOTO_YES = "photo:yes"
+        const val OPT_PHOTO_NO = "photo:no"
+        const val OPT_PHOTO_OK = "photo:ok"
+        const val OPT_PHOTO_RETAKE = "photo:retake"
+        private const val MAX_PHOTO_ATTEMPTS = 3
+        private const val COUNTDOWN_STEP_MS = 800L
+        private val RETAKE = Regex("nochmal|noch mal|neues|neu machen|wiederholen|again|another|retake|new one")
+        private val WITHOUT_PHOTO = Regex("ohne foto|kein foto|keine foto|without (a )?photo|no photo")
+        const val OPT_PLACE = "place:"
+
+        /** Näher als das (Meter) am Ziel → „Wir sind schon da“ statt loszufahren */
+        private const val ALREADY_THERE_M = 1.0
 
         /** Name säubern; Unsinn ("unknown", Einzelbuchstaben) verwerfen. */
         fun cleanName(raw: String?): String? {
