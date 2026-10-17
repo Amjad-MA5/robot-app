@@ -174,6 +174,21 @@ fun AdminScreen(initial: AppSettings, onSave: (AppSettings) -> Unit, onClose: ()
             }
             SmallButton("Stop driving") { driveJob?.cancel(); RobotController.stopNavigation(); addLog("■ Stopped") }
         }
+        // Wegweiser: jeden Kartenpunkt einzeln anfahren (nach "Load map points")
+        if (places.isNotEmpty()) {
+            Text("Test drive to any map point (guide feature):", color = Palette.Muted, fontSize = 12.sp)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                places.forEach { p ->
+                    SmallButton("→ $p") {
+                        driveJob?.cancel()
+                        driveJob = scope.launch {
+                            addLog("… navigating to $p")
+                            addLog(describe(RobotController.navigateTo(p, s.escortSpeed)))
+                        }
+                    }
+                }
+            }
+        }
         LabeledSlider("Escort speed: %.2f m/s".format(s.escortSpeed), s.escortSpeed, 0.2f..0.85f) { s = s.copy(escortSpeed = it) }
         LabeledSlider("Return speed: %.2f m/s".format(s.returnSpeed), s.returnSpeed, 0.2f..0.85f) { s = s.copy(returnSpeed = it) }
         LabeledSlider("Greeting distance: %.1f m".format(s.greetDistance), s.greetDistance, 0.8f..3.5f) { s = s.copy(greetDistance = it) }
