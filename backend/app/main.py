@@ -57,7 +57,23 @@ def build_provider(cfg: Settings) -> Provider:
 
 
 provider: Provider = build_provider(settings)
-visit_log: deque[dict] = deque(maxlen=200)
+visit_log: deque[dict] = deque(maxlen=1000)
+
+
+def _load_visit_log() -> None:
+    """Letzte Besuche aus der Datei laden, damit das Protokoll einen Neustart überlebt."""
+    try:
+        lines = settings.visit_log_file.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for line in lines[-visit_log.maxlen:]:
+        try:
+            visit_log.appendleft(json.loads(line))
+        except ValueError:
+            continue
+
+
+_load_visit_log()
 
 package_log = PackageLog(settings.package_photo_dir)
 
@@ -131,15 +147,20 @@ def busy_range(employee: Employee, days: int | None = None) -> list[BusyBlock]:
 
 
 def log_visit(kind: str, visitor: str, employee: Employee, result: str) -> None:
-    visit_log.appendleft(
-        {
-            "time": now_local().isoformat(timespec="seconds"),
-            "type": kind,
-            "visitor": visitor,
-            "employee": employee.name,
-            "result": result,
-        }
-    )
+    entry = {
+        "time": now_local().isoformat(timespec="seconds"),
+        "type": kind,
+        "visitor": visitor,
+        "employee": employee.name,
+        "result": result,
+    }
+    visit_log.appendleft(entry)
+    try:
+        settings.visit_log_file.parent.mkdir(parents=True, exist_ok=True)
+        with settings.visit_log_file.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        log.warning("Besucherprotokoll konnte nicht gespeichert werden: %s", exc)
 
 
 def do_notify(employee: Employee, subject: str, html: str, text: str) -> NotificationResult:
@@ -422,8 +443,17 @@ def create_appointment(req: AppointmentRequest) -> AppointmentResponse:
 
 # ----------------------------------------------------------- Dashboard / Admin
 @app.get("/api/visits/log", dependencies=[Depends(require_key)])
-def visits_log() -> list[dict]:
-    return list(visit_log)
+def visits_log(
+    day: str = Query("", alias="date", description="YYYY-MM-DD, leer = alle"),
+    q: str = Query("", description="Suche in Besucher und Mitarbeiter"),
+) -> list[dict]:
+    needle = q.strip().lower()
+    return [
+        v
+        for v in visit_log
+        if (not day or v["time"].startswith(day))
+        and (not needle or needle in v["visitor"].lower() or needle in v["employee"].lower())
+    ]
 
 
 @app.get("/api/mock/inbox", dependencies=[Depends(require_key)])

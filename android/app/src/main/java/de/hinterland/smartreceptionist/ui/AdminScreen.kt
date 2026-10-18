@@ -60,6 +60,7 @@ import de.hinterland.smartreceptionist.badge.RobotCamera
 import de.hinterland.smartreceptionist.config.AppSettings
 import de.hinterland.smartreceptionist.net.AppUpdater
 import de.hinterland.smartreceptionist.net.BackendClient
+import de.hinterland.smartreceptionist.net.VisitEntry
 import de.hinterland.smartreceptionist.robot.NavResult
 import de.hinterland.smartreceptionist.robot.RobotController
 import de.hinterland.smartreceptionist.ui.theme.Palette
@@ -318,7 +319,8 @@ fun AdminScreen(initial: AppSettings, onSave: (AppSettings) -> Unit, onClose: ()
         Section("Conversation")
         ToggleRow("Greet automatically when someone is in front", s.autoGreet) { s = s.copy(autoGreet = it) }
         ToggleRow("Use AgentOS language model for understanding", s.useLlm) { s = s.copy(useLlm = it) }
-        ToggleRow("Take a photo of delivered packages (uses the device camera app)", s.deliveryPhoto) { s = s.copy(deliveryPhoto = it) }
+        ToggleRow("Free chat: answer short off-topic questions (needs the language model)", s.freeChat) { s = s.copy(freeChat = it) }
+        ToggleRow("Take a photo of delivered packages (uses the robot camera)", s.deliveryPhoto) { s = s.copy(deliveryPhoto = it) }
         ToggleRow("Offer a short story about Founders Foundation in the waiting room", s.waitingStory) { s = s.copy(waitingStory = it) }
         if (s.waitingStory) {
             Field("Own story text (separate parts with a blank line; empty = default text)", s.waitingStoryText, singleLine = false) { s = s.copy(waitingStoryText = it) }
@@ -331,6 +333,37 @@ fun AdminScreen(initial: AppSettings, onSave: (AppSettings) -> Unit, onClose: ()
         Field("Robot name", s.robotName) { s = s.copy(robotName = it) }
         Field("Company name (fallback; otherwise from backend)", s.companyName) { s = s.copy(companyName = it) }
         Field("Admin PIN", s.adminPin) { s = s.copy(adminPin = it) }
+
+        Section("Visitor log")
+        var visits by remember { mutableStateOf<List<VisitEntry>>(emptyList()) }
+        var visitQuery by remember { mutableStateOf("") }
+        var todayOnly by remember { mutableStateOf(true) }
+        var visitStatus by remember { mutableStateOf("") }
+        fun loadVisits() {
+            scope.launch {
+                visitStatus = "Loading..."
+                runCatching {
+                    client().visitLog(if (todayOnly) java.time.LocalDate.now().toString() else "", visitQuery.trim())
+                }.onSuccess {
+                    visits = it
+                    visitStatus = "${it.size} visit(s)"
+                }.onFailure { visitStatus = "Failed: ${it.message}" }
+            }
+        }
+        Field("Search visitor or host", visitQuery) { visitQuery = it }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            FilterChip(selected = todayOnly, onClick = { todayOnly = !todayOnly }, label = { Text("Today only") })
+            OutlinedButton(onClick = { loadVisits() }) { Text("Load visitor log", color = Palette.Text) }
+        }
+        if (visitStatus.isNotEmpty()) Text(visitStatus, color = Palette.Muted, fontSize = 11.sp)
+        visits.take(100).forEach { v ->
+            Text(
+                "${v.time.replace('T', ' ').take(16)} · ${v.type} · ${v.visitor} → ${v.employee}",
+                color = Palette.Text,
+                fontSize = 11.sp,
+                lineHeight = 14.sp,
+            )
+        }
 
         Section("Log")
         Text(log, color = Palette.Muted, fontSize = 11.sp, lineHeight = 14.sp)

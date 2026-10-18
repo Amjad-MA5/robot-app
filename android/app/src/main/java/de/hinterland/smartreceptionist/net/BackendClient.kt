@@ -65,6 +65,9 @@ data class BadgeResult(
     val pdf: ByteArray?,
 )
 
+/** One line of the visitor log kept by the backend */
+data class VisitEntry(val time: String, val type: String, val visitor: String, val employee: String, val result: String)
+
 data class PrinterTestResult(val sent: Boolean, val method: String, val detail: String, val pdf: ByteArray?)
 
 class BackendException(message: String, val httpCode: Int = 0) : IOException(message) {
@@ -189,6 +192,16 @@ class BackendClient(baseUrl: String, private val apiKey: String) {
     suspend fun reportBadgePrinted(badgeId: String, sent: Boolean, method: String, detail: String, jobId: Int?) {
         val body = JSONObject().put("sent", sent).put("method", method).put("detail", detail).put("job_id", jobId ?: JSONObject.NULL)
         request("POST", "/api/badges/${URLEncoder.encode(badgeId, "UTF-8")}/printed", body)
+    }
+
+    /** Visitor log, newest first. [date] = YYYY-MM-DD or empty for all days. */
+    suspend fun visitLog(date: String = "", query: String = ""): List<VisitEntry> {
+        val path = "/api/visits/log?date=${URLEncoder.encode(date, "UTF-8")}&q=${URLEncoder.encode(query, "UTF-8")}"
+        val arr = JSONArray(request("GET", path))
+        return (0 until arr.length()).map { i ->
+            val o = arr.getJSONObject(i)
+            VisitEntry(o.optString("time"), o.optString("type"), o.optString("visitor"), o.optString("employee"), o.optString("result"))
+        }
     }
 
     /** Printer status as seen from the backend, as a short text for the admin area */

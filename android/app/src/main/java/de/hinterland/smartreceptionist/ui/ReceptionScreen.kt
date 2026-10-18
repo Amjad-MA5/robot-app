@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -319,7 +321,10 @@ private fun DrivingPanel(state: UiState, lines: Lines, actions: ReceptionActions
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ConversationPanel(state: UiState, lines: Lines, actions: ReceptionActions) {
-    Column(Modifier.fillMaxSize().padding(top = 14.dp), verticalArrangement = Arrangement.Center) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = 14.dp),
+        verticalArrangement = Arrangement.Center,
+    ) {
         Text(
             state.title,
             color = Palette.Text,

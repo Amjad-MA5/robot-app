@@ -253,3 +253,19 @@ def test_arrival_message_is_english_by_default(client):
     client.post("/api/visits/arrival", headers=HEADERS, json={"visitor_name": "Max", "employee_id": "lukas.becker"})
     m = client.get("/api/mock/inbox", headers=HEADERS).json()[0]
     assert m["subject"] == "Your visitor has arrived: Max" and "arrived at reception at" in m["text"]
+
+
+def test_visit_log_filters_and_is_saved_to_file(client):
+    from app.config import settings
+
+    client.post(
+        "/api/visits/arrival",
+        json={"visitor_name": "Zora Zebra", "employee_id": "anna.schmidt"},
+        headers=HEADERS,
+    )
+    hits = client.get("/api/visits/log", params={"q": "zebra"}, headers=HEADERS).json()
+    assert hits and all("Zora" in v["visitor"] for v in hits)
+    today = hits[0]["time"][:10]
+    assert client.get("/api/visits/log", params={"date": today, "q": "zebra"}, headers=HEADERS).json()
+    assert client.get("/api/visits/log", params={"date": "2000-01-01"}, headers=HEADERS).json() == []
+    assert "Zora Zebra" in settings.visit_log_file.read_text(encoding="utf-8")

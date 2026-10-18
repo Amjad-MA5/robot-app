@@ -12,7 +12,9 @@ backend/data/msal_token_cache.json
 backend/data/package_photos/
 # Visitor badges contain personal data - never commit them
 backend/data/badges.json
+backend/data/visits.jsonl
 backend/data/badges.tmp
 backend/apk/*.apk
 __pycache__/
 .pytest_cache/
+.claude/worktrees/

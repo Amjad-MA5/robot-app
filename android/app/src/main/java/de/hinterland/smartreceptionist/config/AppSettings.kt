@@ -34,6 +34,7 @@ data class AppSettings(
     val waitingRoomPauseSec: Int = 4,
     /** Sprachverständnis über das AgentOS-Sprachmodell (sonst nur Regeln) */
     val useLlm: Boolean = true,
+    val freeChat: Boolean = true,
     /** Bei Paketlieferungen ein Foto des Pakets aufnehmen (Kamera-App des Geräts) */
     val deliveryPhoto: Boolean = false,
     /** PIN für den Admin-Bereich */
@@ -80,6 +81,7 @@ data class AppSettings(
                 returnSpeed = p.getFloat("returnSpeed", d.returnSpeed),
                 waitingRoomPauseSec = p.getInt("waitingRoomPauseSec", d.waitingRoomPauseSec),
                 useLlm = p.getBoolean("useLlm", d.useLlm),
+                freeChat = p.getBoolean("freeChat", d.freeChat),
                 deliveryPhoto = p.getBoolean("deliveryPhoto", d.deliveryPhoto),
                 adminPin = p.getString("adminPin", d.adminPin) ?: d.adminPin,
                 badgeEnabled = p.getBoolean("badgeEnabled", d.badgeEnabled),
@@ -109,6 +111,7 @@ data class AppSettings(
                 .putFloat("returnSpeed", s.returnSpeed)
                 .putInt("waitingRoomPauseSec", s.waitingRoomPauseSec)
                 .putBoolean("useLlm", s.useLlm)
+                .putBoolean("freeChat", s.freeChat)
                 .putBoolean("deliveryPhoto", s.deliveryPhoto)
                 .putString("adminPin", s.adminPin.trim())
                 .putBoolean("badgeEnabled", s.badgeEnabled)

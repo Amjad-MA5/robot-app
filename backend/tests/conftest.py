@@ -10,3 +10,4 @@ os.environ["SR_MODE"] = "mock"
 # Visitor badges: never send anything to the real printer, never touch real badge data.
 os.environ["SR_PRINTER_METHODS"] = "mock"
 os.environ["SR_BADGE_STORE"] = os.path.join(tempfile.mkdtemp(prefix="sr-badges-"), "badges.json")
+os.environ["SR_VISIT_LOG"] = os.path.join(tempfile.mkdtemp(prefix="sr-visits-"), "visits.jsonl")

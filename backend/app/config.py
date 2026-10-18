@@ -61,6 +61,8 @@ class Settings:
     delivery_handling: str = field(default_factory=lambda: _env("SR_DELIVERY_HANDLING", "leave_at_desk"))
     # Erinnerung, wenn ein Paket nach so vielen Minuten nicht abgeholt wurde (0 = aus)
     package_reminder_min: int = field(default_factory=lambda: _env_int("SR_PACKAGE_REMINDER_MIN", 120))
+    # Besucherprotokoll (eine JSON-Zeile pro Besuch) - enthält Namen, darf nicht ins Git
+    visit_log_file: Path = field(default_factory=lambda: _resolve(_env("SR_VISIT_LOG", "data/visits.jsonl")))
     package_photo_dir: Path = field(default_factory=lambda: _resolve(_env("SR_PACKAGE_PHOTO_DIR", "data/package_photos")))
 
     timezone: ZoneInfo = field(default_factory=lambda: ZoneInfo(_env("SR_TIMEZONE", "Europe/Berlin")))

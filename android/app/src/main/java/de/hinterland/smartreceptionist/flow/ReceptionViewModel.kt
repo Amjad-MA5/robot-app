@@ -38,6 +38,7 @@ import de.hinterland.smartreceptionist.voice.Intent
 import de.hinterland.smartreceptionist.voice.Lines
 import de.hinterland.smartreceptionist.voice.RuleNlu
 import de.hinterland.smartreceptionist.voice.Step
+import de.hinterland.smartreceptionist.voice.Chat
 import de.hinterland.smartreceptionist.voice.Understander
 import de.hinterland.smartreceptionist.voice.Understanding
 import de.hinterland.smartreceptionist.voice.LanguageDetector
@@ -637,6 +638,14 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
                     if (adoptLanguage(text)) l = lines
                     guideFrom(text, u, catalog())?.let { throw GuideInterrupt(it, text) }
                     visit.absorb(u)
+                    if ((visit.intent == null || visit.intent == Intent.OTHER) && u.answer == null && !u.wantsCancel) {
+                        val reply = chatReply(text)
+                        if (reply != null) {
+                            visit.intent = null
+                            say(reply)
+                            continue
+                        }
+                    }
                     if (visit.intent == null) {
                         when (u.answer) {
                             true -> visit.intent = Intent.APPOINTMENT
@@ -663,6 +672,13 @@ class ReceptionViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         return true
+    }
+
+    /** Kurze freie Antwort auf eine Frage abseits der Anmeldung (null = kein Chat möglich). */
+    private suspend fun chatReply(text: String): String? {
+        if (!settings.useLlm || !settings.freeChat) return null
+        val facts = WaitingStory.parts(activeGerman, settings.waitingStoryText).joinToString(" ")
+        return Chat.reply(text, settings.robotName, companyName, facts, activeGerman)
     }
 
     private fun intentFromOption(id: String): Intent? = when (id) {
