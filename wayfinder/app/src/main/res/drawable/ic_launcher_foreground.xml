@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Map pin with a small signpost arrow: "Wayfinder" -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Pin -->
+    <path
+        android:fillColor="#4FD1FF"
+        android:pathData="M54,24C42.4,24 33,33.4 33,45C33,60.8 54,84 54,84C54,84 75,60.8 75,45C75,33.4 65.6,24 54,24Z" />
+    <!-- Inner circle -->
+    <path
+        android:fillColor="#0E3A66"
+        android:pathData="M54,45m-11,0a11,11 0,1 1,22 0a11,11 0,1 1,-22 0" />
+    <!-- Arrow -->
+    <path
+        android:fillColor="#FFC94D"
+        android:pathData="M48,42L56,42L56,38L63,45L56,52L56,48L48,48Z" />
+</vector>

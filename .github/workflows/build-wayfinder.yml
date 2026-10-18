@@ -1,0 +1,65 @@
+# Builds the Wayfinder app (folder wayfinder/) and publishes it as a download.
+# Separate from "Build APK" (Smart Receptionist): own trigger paths, own release tag.
+# Download link: https://github.com/<user>/<repo>/releases/download/wayfinder-latest/wayfinder.apk
+name: Build Wayfinder APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "wayfinder/**"
+      - ".github/workflows/build-wayfinder.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wayfinder-apk
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: wayfinder
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # The Android SDK is preinstalled on GitHub's runners; only accept the licenses
+      - name: Prepare Android SDK
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Unit tests
+        run: gradle :app:testDebugUnitTest --stacktrace
+
+      - name: Build APK
+        run: gradle :app:assembleRelease --stacktrace
+
+      - name: Rename APK
+        run: cp app/build/outputs/apk/release/app-release.apk wayfinder.apk
+
+      - name: Upload as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wayfinder-apk
+          path: wayfinder/wayfinder.apk
+
+      - name: Update the "wayfinder-latest" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete wayfinder-latest --yes --cleanup-tag || true
+          gh release create wayfinder-latest wayfinder.apk --latest=false \
+            --title "Wayfinder (latest build)" \
+            --notes "Guide robot app for event visitors. Built automatically from ${GITHUB_SHA::7}."
